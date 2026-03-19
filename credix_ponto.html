@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Credix · Time Tracking</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #080a0d;
+  --surface:   #0e1117;
+  --surface2:  #151920;
+  --surface3:  #1c2029;
+  --border:    #1f2430;
+  --border2:   #2a3040;
+  --green:     #00c96e;
+  --green-dim: rgba(0,201,110,0.1);
+  --green-glow:rgba(0,201,110,0.2);
+  --red:       #ff4d6a;
+  --red-dim:   rgba(255,77,106,0.1);
+  --gold:      #f5c842;
+  --gold-dim:  rgba(245,200,66,0.1);
+  --blue:      #4d9fff;
+  --blue-dim:  rgba(77,159,255,0.1);
+  --orange:    #ff8c42;
+  --orange-dim:rgba(255,140,66,0.1);
+  --purple:    #9b6dff;
+  --purple-dim:rgba(155,109,255,0.1);
+  --text:      #eef0f5;
+  --text2:     #8892a4;
+  --text3:     #4a5568;
+  --font:      'Poppins', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+/* ── LOGIN SCREEN ── */
+#login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at 30% 50%, rgba(0,201,110,0.05) 0%, transparent 60%),
+              radial-gradient(ellipse at 70% 20%, rgba(77,159,255,0.04) 0%, transparent 50%);
+}
+
+.login-box {
+  width: 100%;
+  max-width: 400px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+
+.brand-dot {
+  width: 32px; height: 32px;
+  background: var(--green);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 800; color: #080a0d;
+}
+
+.brand-name { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.brand-name span { color: var(--green); }
+
+.login-title { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
+.login-sub { font-size: 13px; color: var(--text2); margin-bottom: 32px; font-weight: 400; }
+
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text2); margin-bottom: 8px; }
+
+.field select, .field input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 13px 16px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 400;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  appearance: none;
+}
+.field select:focus, .field input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-dim);
+}
+.field select option { background: var(--surface2); }
+
+.btn-login {
+  width: 100%;
+  padding: 14px;
+  background: var(--green);
+  color: #080a0d;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 4px;
+  letter-spacing: 0.3px;
+}
+.btn-login:hover { background: #00e07a; transform: translateY(-1px); box-shadow: 0 8px 24px var(--green-glow); }
+
+.login-error { font-size: 12px; color: var(--red); margin-top: 10px; text-align: center; min-height: 16px; }
+
+/* ── MAIN APP ── */
+#app { display: none; min-height: 100vh; }
+
+/* ── SIDEBAR ── */
+.layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 240px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  padding: 24px 16px;
+}
+
+.sidebar-brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 8px;
+  margin-bottom: 32px;
+}
+.sidebar-brand .brand-dot { width: 28px; height: 28px; font-size: 14px; border-radius: 7px; }
+.sidebar-brand .brand-name { font-size: 16px; font-weight: 700; }
+
+.nav-section { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text3); padding: 0 8px; margin-bottom: 8px; margin-top: 20px; }
+.nav-section:first-of-type { margin-top: 0; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 13px; font-weight: 500;
+  color: var(--text2);
+  border: 1px solid transparent;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--green-dim); color: var(--green); border-color: rgba(0,201,110,0.2); }
+.nav-item .icon { font-size: 15px; width: 20px; text-align: center; }
+
+.sidebar-footer { margin-top: auto; }
+.user-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px;
+}
+.user-avatar {
+  width: 34px; height: 34px;
+  background: var(--green-dim);
+  border: 1px solid rgba(0,201,110,0.3);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: var(--green);
+  flex-shrink: 0;
+}
+.user-info-name { font-size: 13px; font-weight: 600; }
+.user-info-role { font-size: 11px; color: var(--text2); }
+.admin-tag { font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); background: var(--gold-dim); border: 1px solid rgba(245,200,66,0.25); padding: 2px 6px; border-radius: 4px; }
+.btn-logout { width: 100%; padding: 10px; background: transparent; border: 1px solid var(--border2); border-radius: 8px; color: var(--text2); font-family: var(--font); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.btn-logout:hover { border-color: var(--red); color: var(--red); }
+
+/* ── MAIN CONTENT ── */
+.main { margin-left: 240px; flex: 1; padding: 32px; }
+
+.page { display: none; }
+.page.active { display: block; }
+
+.page-header { margin-bottom: 28px; }
+.page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+.page-sub { font-size: 13px; color: var(--text2); margin-top: 4px; font-weight: 400; }
+
+/* ── CLOCK CARD ── */
+.clock-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 32px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.clock-left { flex: 1; }
+.clock-time { font-size: 52px; font-weight: 300; letter-spacing: -3px; line-height: 1; color: var(--text); }
+.clock-date { font-size: 13px; color: var(--text2); margin-top: 6px; font-weight: 400; }
+.clock-status { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.status-dot.in { background: var(--green); animation: pulse 2s infinite; }
+.status-dot.out { background: var(--text3); }
+.status-label { font-size: 12px; font-weight: 500; }
+.status-label.in { color: var(--green); }
+.status-label.out { color: var(--text3); }
+
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+.punch-btns { display: flex; flex-direction: column; gap: 10px; min-width: 180px; }
+.btn-punch {
+  padding: 14px 20px;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--font);
+  font-size: 13px; font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  letter-spacing: 0.3px;
+}
+.btn-punch.in { background: var(--green); color: #080a0d; }
+.btn-punch.in:hover:not(:disabled) { background: #00e07a; box-shadow: 0 6px 20px var(--green-glow); }
+.btn-punch.out { background: var(--red); color: white; }
+.btn-punch.out:hover:not(:disabled) { background: #ff6b84; box-shadow: 0 6px 20px rgba(255,77,106,0.3); }
+.btn-punch:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* ── GRID ── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+/* ── CARD ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+}
+.card-title { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text2); margin-bottom: 16px; }
+
+/* ── TODAY LOG ── */
+.log-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.log-row:last-child { border-bottom: none; }
+.log-type { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.log-type.in { color: var(--green); }
+.log-type.out { color: var(--red); }
+.log-type.dayoff { color: var(--blue); }
+.log-type.medical { color: var(var(--gold)); }
+.log-type.holiday { color: var(--purple); }
+.log-type.vacation { color: var(--orange); }
+.log-time { color: var(--text2); font-size: 12px; font-weight: 500; }
+.empty-log { font-size: 12px; color: var(--text3); text-align: center; padding: 16px 0; }
+
+/* ── OCCURRENCE BTN ── */
+.btn-occurrence {
+  width: 100%;
+  padding: 13px;
+  background: var(--gold-dim);
+  border: 1px solid rgba(245,200,66,0.25);
+  border-radius: 10px;
+  color: var(--gold);
+  font-family: var(--font);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-occurrence:hover { background: rgba(245,200,66,0.18); }
+
+/* ── TABLE ── */
+.table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead { position: sticky; top: 0; z-index: 1; }
+th { text-align: left; padding: 12px 16px; font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text2); background: var(--surface2); border-bottom: 1px solid var(--border); }
+td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text); font-weight: 400; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface2); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+}
+.badge.in    { background: var(--green-dim); color: var(--green); }
+.badge.out   { background: var(--red-dim); color: var(--red); }
+.badge.dayoff    { background: var(--blue-dim); color: var(--blue); }
+.badge.medical   { background: var(--gold-dim); color: var(--gold); }
+.badge.holiday   { background: var(--purple-dim); color: var(--purple); }
+.badge.vacation  { background: var(--orange-dim); color: var(--orange); }
+
+/* ── FILTERS ── */
+.filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.filter-item { flex: 1; min-width: 140px; }
+.filter-item select, .filter-item input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  appearance: none;
+}
+.filter-item select:focus, .filter-item input:focus { border-color: var(--green); }
+.filter-item select option { background: var(--surface2); }
+
+/* ── BUTTONS ── */
+.btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-green { background: var(--green); color: #080a0d; }
+.btn-green:hover { background: #00e07a; }
+.btn-outline { background: transparent; border: 1px solid var(--border2); color: var(--text2); }
+.btn-outline:hover { border-color: var(--green); color: var(--green); }
+.btn-danger { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,77,106,0.2); }
+.btn-danger:hover { background: rgba(255,77,106,0.2); }
+.btn-sm { padding: 6px 12px; font-size: 11px; }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(8,10,13,0.85);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 16px;
+  padding: 28px;
+  width: 100%; max-width: 440px;
+  transform: translateY(16px); transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.modal-sub { font-size: 12px; color: var(--text2); margin-bottom: 24px; }
+.modal-field { margin-bottom: 14px; }
+.modal-field label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text2); margin-bottom: 7px; }
+.modal-field select, .modal-field input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 11px 14px;
+  color: var(--text);
+  font-family: var(--font); font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  appearance: none;
+}
+.modal-field select:focus, .modal-field input:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-dim);
+}
+.modal-field select option { background: var(--surface2); }
+.modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+.modal-actions .btn { flex: 1; justify-content: center; padding: 12px; }
+
+.drive-hint { font-size: 11px; color: var(--text2); margin-top: 6px; display: flex; align-items: center; gap: 5px; }
+.drive-hint a { color: var(--blue); text-decoration: none; }
+.drive-hint a:hover { text-decoration: underline; }
+
+/* ── ADMIN EDIT ── */
+.edit-icon { cursor: pointer; color: var(--text3); transition: color 0.15s; font-size: 14px; }
+.edit-icon:hover { color: var(--gold); }
+.delete-icon { cursor: pointer; color: var(--text3); transition: color 0.15s; font-size: 14px; margin-left: 8px; }
+.delete-icon:hover { color: var(--red); }
+
+/* ── STAT CARD ── */
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 24px; }
+.stat-value { font-size: 32px; font-weight: 700; letter-spacing: -1px; margin-bottom: 4px; }
+.stat-label { font-size: 12px; color: var(--text2); font-weight: 400; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; gap: 10px;
+  z-index: 2000;
+  transform: translateY(80px); opacity: 0;
+  transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  max-width: 320px;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { border-left: 3px solid var(--green); }
+.toast.error { border-left: 3px solid var(--red); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; padding: 20px; }
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .clock-card { flex-direction: column; }
+  .punch-btns { flex-direction: row; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══ LOGIN ══════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="brand">
+      <img src="data:image/png;base64,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" style="height:70px;width:auto;margin-bottom:32px;" alt="Credix">
+    </div>
+    <div class="login-title">Time Tracking</div>
+    <div class="login-sub">Select your name to clock in</div>
+    <div class="field">
+      <label>Who are you?</label>
+      <select id="login-user" onchange="togglePasswordField()">
+        <option value="">Select your name...</option>
+        <option value="evelyn">Evelyn</option>
+        <option value="patrick">Patrick</option>
+        <option value="elisangela">Elisangela</option>
+        <option value="enzo">Enzo</option>
+      </select>
+    </div>
+    <div class="field" id="password-field" style="display:none;">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="Enter password..." onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="btn-login" onclick="doLogin()">Enter</button>
+    <div class="login-error" id="login-error"></div>
+    <div id="forgot-pwd-link" style="display:none;text-align:center;margin-top:14px;">
+      <span onclick="openForgotPassword()" style="font-size:12px;color:var(--text2);cursor:pointer;text-decoration:underline;">Forgot password?</span>
+    </div>
+  </div>
+</div>
+
+<!-- PARTIAL DAY MODAL -->
+<div class="modal-overlay" id="partial-modal">
+  <div class="modal">
+    <div class="modal-title">Partial Day</div>
+    <div class="modal-sub">You clocked in today but didn't clock out. What time did you leave?</div>
+    <div class="modal-field">
+      <label>Clock Out Time</label>
+      <input type="time" id="partial-clockout-time" step="60">
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-top:-6px;margin-bottom:12px;">
+      Leave blank to skip — the occurrence will be registered without a clock out.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="savePartialDay(false)">Skip</button>
+      <button class="btn btn-green" onclick="savePartialDay(true)">Save Clock Out</button>
+    </div>
+  </div>
+</div>
+
+<!-- FORGOT PASSWORD MODAL -->
+<div class="modal-overlay" id="forgot-modal">
+  <div class="modal">
+    <div class="modal-title">Reset Password</div>
+    <div class="modal-sub">Answer your security question to reset access</div>
+    <div class="modal-field">
+      <label>Security Word</label>
+      <input type="text" id="forgot-security-word" placeholder="Enter your security word...">
+    </div>
+    <div id="forgot-new-pwd-section" style="display:none;">
+      <div class="modal-field">
+        <label>New Password</label>
+        <input type="password" id="forgot-new-pwd" placeholder="Enter new password...">
+      </div>
+      <div class="modal-field">
+        <label>Confirm Password</label>
+        <input type="password" id="forgot-confirm-pwd" placeholder="Confirm new password...">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('forgot-modal')">Cancel</button>
+      <button class="btn btn-green" id="forgot-btn" onclick="verifySecurityWord()">Verify</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ APP ════════════════════════════════════════════════ -->
+<div id="app">
+  <div class="layout">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sidebar-brand" style="padding:0 8px;margin-bottom:32px;">
+        <img src="data:image/png;base64,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" style="height:48px;width:auto;" alt="Credix">
+      </div>
+
+      <div class="nav-section">Main</div>
+      <div class="nav-item active dashboard-nav" onclick="showPage('dashboard')" id="nav-dashboard">
+        <span class="icon">⏱</span> Dashboard
+      </div>
+      <div class="nav-item" onclick="showPage('history')">
+        <span class="icon">📋</span> History
+      </div>
+      <div class="nav-item" onclick="showPage('report')">
+        <span class="icon">📊</span> Reports
+      </div>
+      <div class="nav-item admin-nav" onclick="showPage('admin')" style="display:none">
+        <span class="icon">⚙️</span> Admin Panel
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="user-card">
+          <div class="user-avatar" id="sidebar-avatar"></div>
+          <div>
+            <div class="user-info-name" id="sidebar-name"></div>
+            <div id="sidebar-role"></div>
+          </div>
+        </div>
+        <button class="btn-logout" onclick="doLogout()">← Sign Out</button>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div class="main">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px;">
+          <div>
+            <div class="page-title">Good <span id="greeting-time"></span>, <span id="greeting-name"></span> 👋</div>
+            <div class="page-sub" id="greeting-date"></div>
+          </div>
+          <button class="btn btn-outline" onclick="doLogout()" style="white-space:nowrap;margin-top:4px;flex-shrink:0;">← Back to Login</button>
+        </div>
+
+        <div class="clock-card">
+          <div class="clock-left">
+            <div class="clock-time" id="live-clock">00:00:00</div>
+            <div class="clock-date" id="live-date"></div>
+            <div class="clock-status">
+              <div class="status-dot out" id="status-dot"></div>
+              <div class="status-label out" id="status-label">Not clocked in</div>
+            </div>
+          </div>
+          <div class="punch-btns">
+            <button class="btn-punch in" id="btn-in" onclick="punch('Clock In')">▶ Clock In</button>
+            <button class="btn-punch out" id="btn-out" onclick="punch('Clock Out')" disabled>■ Clock Out</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">Today's Records</div>
+            <div id="today-log"><div class="empty-log">No records yet today.</div></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Register Occurrence</div>
+            <div style="margin-bottom:12px; font-size:12px; color:var(--text2); line-height:1.6;">
+              Register absences, holidays or time off for any date — past or future.
+            </div>
+            <button class="btn-occurrence" onclick="openOccurrenceModal()">
+              📋 Register Occurrence
+            </button>
+            <div style="margin-top:12px; display:flex; flex-wrap:wrap; gap:6px;">
+              <span class="badge medical">🏥 Medical Leave</span>
+              <span class="badge holiday">🎉 Holiday</span>
+              <span class="badge dayoff">☀️ Day Off</span>
+              <span class="badge vacation">✈️ Vacation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── HISTORY ── -->
+      <div class="page" id="page-history">
+        <div class="page-header">
+          <div class="page-title">History</div>
+          <div class="page-sub">All your time records</div>
+        </div>
+        <div class="filters">
+          <div class="filter-item">
+            <select id="hist-month" onchange="renderHistory()">
+              <option value="">All months</option>
+              <option value="01">January</option><option value="02">February</option>
+              <option value="03">March</option><option value="04">April</option>
+              <option value="05">May</option><option value="06">June</option>
+              <option value="07">July</option><option value="08">August</option>
+              <option value="09">September</option><option value="10">October</option>
+              <option value="11">November</option><option value="12">December</option>
+            </select>
+          </div>
+          <div class="filter-item">
+            <input type="number" id="hist-year" placeholder="Year" min="2024" max="2099" oninput="renderHistory()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Type</th><th>Date</th><th>Time</th><th>Notes</th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── REPORTS ── -->
+      <div class="page" id="page-report">
+        <div class="page-header">
+          <div class="page-title">Reports</div>
+          <div class="page-sub">Export and analyze records</div>
+        </div>
+        <div class="filters">
+          <div class="filter-item">
+            <select id="rep-user" onchange="renderReport()">
+              <option value="">All collaborators</option>
+              <option value="evelyn">Evelyn</option>
+              <option value="patrick">Patrick</option>
+              <option value="elisangela">Elisangela</option>
+              <option value="enzo">Enzo</option>
+            </select>
+          </div>
+          <div class="filter-item">
+            <select id="rep-month" onchange="renderReport()">
+              <option value="">All months</option>
+              <option value="01">January</option><option value="02">February</option>
+              <option value="03">March</option><option value="04">April</option>
+              <option value="05">May</option><option value="06">June</option>
+              <option value="07">July</option><option value="08">August</option>
+              <option value="09">September</option><option value="10">October</option>
+              <option value="11">November</option><option value="12">December</option>
+            </select>
+          </div>
+          <div class="filter-item">
+            <input type="number" id="rep-year" placeholder="Year" min="2024" max="2099" oninput="renderReport()">
+          </div>
+          <button class="btn btn-green" onclick="exportCSV()">↓ Export CSV</button>
+        </div>
+
+        <div class="grid-3" id="report-stats" style="margin-bottom:20px"></div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th></tr></thead>
+            <tbody id="report-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── ADMIN ── -->
+      <div class="page" id="page-admin">
+        <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+          <div>
+            <div class="page-title">Admin Panel</div>
+            <div class="page-sub">Edit or delete any record</div>
+          </div>
+          <button class="btn btn-outline" onclick="refreshAdmin()" style="white-space:nowrap;margin-top:4px;">↻ Refresh</button>
+        </div>
+        <div class="filters">
+          <div class="filter-item">
+            <select id="admin-user" onchange="renderAdmin()">
+              <option value="">All collaborators</option>
+              <option value="evelyn">Evelyn</option>
+              <option value="patrick">Patrick</option>
+              <option value="elisangela">Elisangela</option>
+              <option value="enzo">Enzo</option>
+            </select>
+          </div>
+          <div class="filter-item">
+            <select id="admin-month" onchange="renderAdmin()">
+              <option value="">All months</option>
+              <option value="01">January</option><option value="02">February</option>
+              <option value="03">March</option><option value="04">April</option>
+              <option value="05">May</option><option value="06">June</option>
+              <option value="07">July</option><option value="08">August</option>
+              <option value="09">September</option><option value="10">October</option>
+              <option value="11">November</option><option value="12">December</option>
+            </select>
+          </div>
+          <div class="filter-item">
+            <input type="number" id="admin-year" placeholder="Year" min="2024" max="2099" oninput="renderAdmin()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th><th>Actions</th></tr></thead>
+            <tbody id="admin-body"></tbody>
+          </table>
+        </div>
+
+        <div style="margin-top:28px;">
+          <div class="page-title" style="font-size:16px;margin-bottom:4px;">Change Password</div>
+          <div class="page-sub" style="margin-bottom:20px;">Update your admin password</div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Password</div>
+              <input type="password" id="new-password" placeholder="Enter new password..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <div style="flex:1;min-width:180px;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Confirm Password</div>
+              <input type="password" id="confirm-password" placeholder="Confirm new password..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <button class="btn btn-green" onclick="changePassword()" style="padding:11px 20px;white-space:nowrap;">Save Password</button>
+          </div>
+        </div>
+
+        <div style="margin-top:28px;">
+          <div class="page-title" style="font-size:16px;margin-bottom:4px;">Security Word</div>
+          <div class="page-sub" style="margin-bottom:20px;">Used to recover your password if forgotten</div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Security Word</div>
+              <input type="text" id="new-security-word" placeholder="e.g. sunshine, credix2026..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <button class="btn btn-green" onclick="changeSecurityWord()" style="padding:11px 20px;white-space:nowrap;">Save Word</button>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:8px;">⚠️ Keep this word private — it allows resetting your password.</div>
+        </div>
+
+        <div style="margin-top:28px;">
+          <div class="page-title" style="font-size:16px;margin-bottom:4px;">Manage Collaborators</div>
+          <div class="page-sub" style="margin-bottom:20px;">Add or remove team members</div>
+
+          <div style="display:flex;gap:10px;margin-bottom:20px;align-items:flex-end;">
+            <div style="flex:1;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Full Name</div>
+              <input type="text" id="new-collab-name" placeholder="e.g. Maria Silva" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <button class="btn btn-green" onclick="addCollaborator()" style="padding:11px 20px;white-space:nowrap;">+ Add</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Role</th><th>Action</th></tr></thead>
+              <tbody id="collab-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main -->
+  </div><!-- /layout -->
+</div><!-- /app -->
+
+<!-- ══ OCCURRENCE MODAL ══════════════════════════════════ -->
+<div class="modal-overlay" id="occurrence-modal">
+  <div class="modal">
+    <div class="modal-title">Register Occurrence</div>
+    <div class="modal-sub">Log an absence or time off — single day or date range</div>
+    <div class="modal-field">
+      <label>Type</label>
+      <select id="occ-type">
+        <option value="Medical Leave">🏥 Medical Leave</option>
+        <option value="Holiday">🎉 Holiday</option>
+        <option value="Day Off">☀️ Day Off</option>
+        <option value="Vacation">✈️ Vacation</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Start Date</label>
+      <input type="date" id="occ-date-start">
+    </div>
+    <div class="modal-field">
+      <label>End Date <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— leave blank for single day</span></label>
+      <input type="date" id="occ-date-end">
+    </div>
+    <div class="modal-field" id="drive-field">
+      <label>Document Link (Google Drive) <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
+      <input type="url" id="occ-drive" placeholder="https://drive.google.com/...">
+      <div class="drive-hint">
+        📎 Upload to <a href="https://drive.google.com" target="_blank">Google Drive</a> and paste the link here
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Notes <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
+      <input type="text" id="occ-notes" placeholder="Additional notes...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('occurrence-modal')">Cancel</button>
+      <button class="btn btn-green" onclick="saveOccurrence()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EDIT MODAL ════════════════════════════════════════ -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-title">Edit Record</div>
+    <div class="modal-sub">Make corrections to this entry</div>
+    <input type="hidden" id="edit-id">
+    <div class="modal-field">
+      <label>Collaborator</label>
+      <select id="edit-user">
+        <option value="evelyn">Evelyn</option>
+        <option value="patrick">Patrick</option>
+        <option value="elisangela">Elisangela</option>
+        <option value="enzo">Enzo</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Type</label>
+      <select id="edit-type">
+        <option value="Clock In">▶ Clock In</option>
+        <option value="Clock Out">■ Clock Out</option>
+        <option value="Medical Leave">🏥 Medical Leave</option>
+        <option value="Holiday">🎉 Holiday</option>
+        <option value="Day Off">☀️ Day Off</option>
+        <option value="Vacation">✈️ Vacation</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Date</label>
+      <input type="date" id="edit-date">
+    </div>
+    <div class="modal-field">
+      <label>Time <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— leave blank for occurrences</span></label>
+      <input type="time" id="edit-time" step="1">
+    </div>
+    <div class="modal-field">
+      <label>Notes / Drive Link</label>
+      <input type="text" id="edit-notes" placeholder="Notes or Google Drive link...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('edit-modal')">Cancel</button>
+      <button class="btn btn-green" onclick="saveEdit()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TOAST ══════════════════════════════════════════════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════
+const API_URL = "https://script.google.com/macros/s/AKfycbybem_4w5ogS6qglVgaqKCmgOkk-FuZxEk8p4IMr35HtrY0Xyr8q4_X8o4IXGIww_2u/exec";
+
+// ═══════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════
+async function apiGet(action) {
+  const res = await fetch(API_URL + '?action=' + action);
+  return res.json();
+}
+
+async function apiPost(action, data) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action, ...data })
+  });
+  return res.json();
+}
+
+// ═══════════════════════════════════════════════════
+// DATA
+// ═══════════════════════════════════════════════════
+let USERS = {};
+let ALL_RECORDS = [];
+let currentUser = null;
+
+async function loadUsers() {
+  try {
+    const res = await apiGet('getUsers');
+    if (res.success) {
+      USERS = {};
+      res.users.forEach(u => { USERS[u.key] = { name: u.name, admin: u.admin }; });
+    }
+  } catch(e) {
+    // fallback
+    USERS = {
+      evelyn:     { name: 'Evelyn',     admin: false },
+      patrick:    { name: 'Patrick',    admin: false },
+      elisangela: { name: 'Elisangela', admin: false },
+      enzo:       { name: 'Enzo',       admin: true  }
+    };
+  }
+}
+
+async function loadRecords() {
+  try {
+    const res = await apiGet('getRecords');
+    if (res.success) ALL_RECORDS = res.records;
+  } catch(e) { ALL_RECORDS = []; }
+}
+
+function getRecords() { return ALL_RECORDS; }
+
+function saveRecordRemote(rec) {
+  ALL_RECORDS.push(rec);
+  return apiPost('addRecord', { record: rec });
+}
+
+function updateRecordRemote(rec) {
+  const idx = ALL_RECORDS.findIndex(r => r.id === rec.id);
+  if (idx > -1) ALL_RECORDS[idx] = rec;
+  return apiPost('updateRecord', { record: rec });
+}
+
+function deleteRecordRemote(id) {
+  ALL_RECORDS = ALL_RECORDS.filter(r => r.id !== id);
+  return apiPost('deleteRecord', { id });
+}
+
+async function saveUsersRemote(usersObj) {
+  const arr = Object.entries(usersObj).map(([key, u]) => ({ key, name: u.name, admin: u.admin }));
+  await apiPost('saveUsers', { users: arr });
+}
+
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+function refreshDropdowns() {
+  const selects = [
+    document.getElementById('login-user'),
+    document.getElementById('rep-user'),
+    document.getElementById('admin-user'),
+    document.getElementById('edit-user'),
+  ];
+  selects.forEach(sel => {
+    if (!sel) return;
+    const isLogin = sel.id === 'login-user';
+    const cur = sel.value;
+    sel.innerHTML = isLogin
+      ? '<option value="">Select your name...</option>'
+      : '<option value="">All collaborators</option>';
+    Object.entries(USERS).forEach(([key, u]) => {
+      const opt = document.createElement('option');
+      opt.value = key; opt.textContent = u.name + (u.admin ? ' ★' : '');
+      sel.appendChild(opt);
+    });
+    if (cur) sel.value = cur;
+  });
+}
+
+async function addCollaborator() {
+  const nameInput = document.getElementById('new-collab-name');
+  const name = nameInput.value.trim();
+  if (!name) { showToast('Please enter a name.', 'error'); return; }
+  const key = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+  if (USERS[key]) { showToast('A collaborator with this name already exists.', 'error'); return; }
+  USERS[key] = { name, admin: false };
+  await saveUsersRemote(USERS);
+  nameInput.value = '';
+  refreshDropdowns();
+  renderCollaborators();
+  showToast('✅ ' + name + ' added!', 'success');
+}
+
+async function removeCollaborator(key) {
+  if (!USERS[key]) return;
+  if (USERS[key].admin) { showToast('Cannot remove the admin.', 'error'); return; }
+  if (!confirm('Remove ' + USERS[key].name + '? Their records will be kept.')) return;
+  delete USERS[key];
+  await saveUsersRemote(USERS);
+  refreshDropdowns();
+  renderCollaborators();
+  showToast('Collaborator removed.', 'success');
+}
+
+async function refreshAdmin() {
+  showToast('Refreshing...', 'success');
+  await loadRecords();
+  renderAdmin();
+  showToast('✅ Updated!', 'success');
+}
+
+function renderCollaborators() {
+  const tbody = document.getElementById('collab-body');
+  if (!tbody) return;
+  let rows = '';
+  Object.entries(USERS).forEach(function(entry) {
+    const key = entry[0];
+    const u = entry[1];
+    const roleCell = u.admin
+      ? '<span class="badge" style="background:var(--gold-dim);color:var(--gold)">&#9733; Admin</span>'
+      : '<span class="badge" style="background:var(--surface2);color:var(--text2)">Collaborator</span>';
+    const actionCell = u.admin
+      ? '<span style="color:var(--text3);font-size:12px">&mdash;</span>'
+      : '<button class="btn btn-danger btn-sm remove-collab-btn" data-key="' + key + '">&#128465; Remove</button>';
+    rows += '<tr><td><span style="font-weight:500">' + u.name + '</span></td><td>' + roleCell + '</td><td>' + actionCell + '</td></tr>';
+  });
+  tbody.innerHTML = rows;
+  tbody.querySelectorAll('.remove-collab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      removeCollaborator(this.getAttribute('data-key'));
+    });
+  });
+}
+
+function getRecords() { return JSON.parse(localStorage.getItem('cp_records_v2') || '[]'); }
+function saveRecords(r) { localStorage.setItem('cp_records_v2', JSON.stringify(r)); }
+
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+// ═══════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  document.getElementById('live-clock').textContent = now.toLocaleTimeString('en-GB');
+  document.getElementById('live-date').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  document.getElementById('greeting-date').textContent = now.toLocaleDateString('en-GB', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  const h = now.getHours();
+  document.getElementById('greeting-time').textContent = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════════
+async function doLogin() {
+  const key = document.getElementById('login-user').value;
+  const err = document.getElementById('login-error');
+  if (!key) { err.textContent = 'Please select your name.'; return; }
+
+  // Check password for admin
+  if (key === 'enzo') {
+    const pwd = document.getElementById('login-password').value;
+    if (!pwd) { err.textContent = 'Please enter your password.'; return; }
+    if (pwd !== getAdminPassword()) { err.textContent = 'Incorrect password.'; return; }
+  }
+
+  err.textContent = 'Loading...';
+  await loadUsers();
+  err.textContent = '';
+  currentUser = key;
+  initApp();
+}
+
+function doLogout() {
+  currentUser = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-user').value = '';
+}
+
+async function initApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  const u = USERS[currentUser];
+  document.getElementById('sidebar-avatar').textContent = u.name[0];
+  document.getElementById('sidebar-name').textContent = u.name;
+  document.getElementById('greeting-name').textContent = u.name;
+  document.getElementById('sidebar-role').innerHTML = u.admin
+    ? '<span class="admin-tag">★ Admin</span>'
+    : '<span class="user-info-role">Collaborator</span>';
+
+  // Show admin nav
+  document.querySelectorAll('.admin-nav').forEach(el => {
+    el.style.setProperty('display', u.admin ? 'flex' : 'none', 'important');
+  });
+
+  // Set default month/year filters
+  const now = new Date();
+  const mm = String(now.getMonth()+1).padStart(2,'0');
+  const yy = now.getFullYear();
+  ['hist','rep','admin'].forEach(p => {
+    const mEl = document.getElementById(`${p}-month`);
+    const yEl = document.getElementById(`${p}-year`);
+    if (mEl) mEl.value = mm;
+    if (yEl) yEl.value = yy;
+  });
+
+  // Lock report user to self if not admin
+  const repUser = document.getElementById('rep-user');
+  if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
+  else { repUser.disabled = false; }
+
+  refreshDropdowns();
+  const sidebar = document.querySelector('.sidebar');
+  const mainEl = document.querySelector('.main');
+
+  // Load all records from backend
+  showToast('Loading...', 'success');
+  await loadRecords();
+
+  if (USERS[currentUser]?.admin) {
+    sidebar.style.display = 'flex';
+    mainEl.style.marginLeft = '240px';
+    // Hide dashboard nav and page for admin
+    const dashNav = document.querySelector('.dashboard-nav');
+    const dashPage = document.getElementById('page-dashboard');
+    if (dashNav) dashNav.style.setProperty('display', 'none', 'important');
+    if (dashPage) dashPage.style.setProperty('display', 'none', 'important');
+    showPage('admin');
+  } else {
+    sidebar.style.display = 'none';
+    mainEl.style.marginLeft = '0';
+    updateStatus();
+    renderToday();
+    showPage('dashboard');
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById(`page-${page}`).classList.add('active');
+  event && event.currentTarget && event.currentTarget.classList.add('active');
+
+  if (page === 'history') { loadRecords().then(renderHistory); }
+  if (page === 'report') { loadRecords().then(renderReport); }
+  if (page === 'admin') { loadRecords().then(() => { renderAdmin(); renderCollaborators(); }); }
+}
+
+// ═══════════════════════════════════════════════════
+// PUNCH
+// ═══════════════════════════════════════════════════
+function getLastTodayRecord() {
+  const today = todayStr();
+  const recs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today && (r.type === 'Clock In' || r.type === 'Clock Out'));
+  return recs.length ? recs[recs.length-1] : null;
+}
+
+function todayStr() {
+  return new Date().toLocaleDateString('en-GB');
+}
+
+async function punch(type) {
+  const now = new Date();
+  const rec = {
+    id: genId(), user: currentUser, name: USERS[currentUser].name,
+    type, date: now.toLocaleDateString('en-GB'),
+    time: now.toLocaleTimeString('en-GB'), notes: '', timestamp: now.toISOString()
+  };
+  showToast('Saving...', 'success');
+  await saveRecordRemote(rec);
+  updateStatus(); renderToday();
+  showToast(type === 'Clock In' ? '▶ Clocked in successfully!' : '■ Clocked out successfully!', 'success');
+}
+
+function updateStatus() {
+  const last = getLastTodayRecord();
+  const dot = document.getElementById('status-dot');
+  const label = document.getElementById('status-label');
+  const btnIn = document.getElementById('btn-in');
+  const btnOut = document.getElementById('btn-out');
+
+  if (last && last.type === 'Clock In') {
+    dot.className = 'status-dot in'; label.className = 'status-label in'; label.textContent = 'Clocked in';
+    btnIn.disabled = true; btnOut.disabled = false;
+  } else {
+    dot.className = 'status-dot out'; label.className = 'status-label out'; label.textContent = 'Not clocked in';
+    btnIn.disabled = false; btnOut.disabled = true;
+  }
+}
+
+function renderToday() {
+  const today = todayStr();
+  const recs = getRecords().filter(r => r.user === currentUser && r.date === today);
+  const el = document.getElementById('today-log');
+  if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
+  el.innerHTML = recs.map(r => `
+    <div class="log-row">
+      <div class="log-type ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</div>
+      <div class="log-time">${r.time || '—'}</div>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════
+// OCCURRENCE
+// ═══════════════════════════════════════════════════
+function openOccurrenceModal() {
+  document.getElementById('occ-date-start').value = new Date().toISOString().slice(0,10);
+  document.getElementById('occ-date-end').value = '';
+  document.getElementById('occ-drive').value = '';
+  document.getElementById('occ-notes').value = '';
+  openModal('occurrence-modal');
+}
+
+// Called after occurrence is saved — check if today has clock in without clock out
+let pendingOccurrenceData = null;
+
+function checkPartialDay(type, dates) {
+  const today = new Date().toLocaleDateString('en-GB');
+  const todayRecs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today);
+  const hasClockIn = todayRecs.some(r => r.type === 'Clock In');
+  const hasClockOut = todayRecs.some(r => r.type === 'Clock Out');
+
+  // Only show partial day prompt if today is in the dates range and has clock in without clock out
+  const todayInRange = dates.some(d => d.toLocaleDateString('en-GB') === today);
+
+  if (todayInRange && hasClockIn && !hasClockOut) {
+    pendingOccurrenceData = { type, dates };
+    // Pre-fill with current time
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    document.getElementById('partial-clockout-time').value = hh + ':' + mm;
+    openModal('partial-modal');
+    return true;
+  }
+  return false;
+}
+
+async function savePartialDay(saveClockOut) {
+  closeModal('partial-modal');
+  if (saveClockOut) {
+    const timeVal = document.getElementById('partial-clockout-time').value;
+    if (timeVal) {
+      const today = new Date().toLocaleDateString('en-GB');
+      const rec = {
+        id: genId(), user: currentUser, name: USERS[currentUser].name,
+        type: 'Clock Out', date: today,
+        time: timeVal + ':00', notes: 'Partial day — ' + (pendingOccurrenceData?.type || 'occurrence'),
+        timestamp: new Date().toISOString()
+      };
+      await saveRecordRemote(rec);
+      updateStatus();
+      renderToday();
+      showToast('✅ Clock out registered at ' + timeVal, 'success');
+    }
+  }
+  pendingOccurrenceData = null;
+}
+
+async function saveOccurrence() {
+  const type = document.getElementById('occ-type').value;
+  const startRaw = document.getElementById('occ-date-start').value;
+  const endRaw = document.getElementById('occ-date-end').value;
+  const drive = document.getElementById('occ-drive').value.trim();
+  const notes = document.getElementById('occ-notes').value.trim();
+
+  if (!startRaw) { showToast('Please select a start date.', 'error'); return; }
+
+  const start = new Date(startRaw + 'T00:00:00');
+  const end = endRaw ? new Date(endRaw + 'T00:00:00') : start;
+
+  if (end < start) { showToast('End date must be after start date.', 'error'); return; }
+
+  // Generate one record per day
+  const dates = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    dates.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  showToast('Saving ' + dates.length + ' day(s)...', 'success');
+
+  for (const d of dates) {
+    const rec = {
+      id: genId(), user: currentUser, name: USERS[currentUser].name,
+      type, date: d.toLocaleDateString('en-GB'),
+      time: '', notes: drive || notes, timestamp: new Date().toISOString()
+    };
+    await saveRecordRemote(rec);
+  }
+
+  closeModal('occurrence-modal');
+  renderToday();
+  const msg = dates.length === 1
+    ? '✅ ' + type + ' registered for ' + start.toLocaleDateString('en-GB')
+    : '✅ ' + type + ' registered for ' + dates.length + ' days';
+  showToast(msg, 'success');
+
+  // Check if partial day prompt is needed
+  checkPartialDay(type, dates);
+}
+
+// ═══════════════════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════════════════
+function renderHistory() {
+  const mm = document.getElementById('hist-month').value;
+  const yy = document.getElementById('hist-year').value;
+  let recs = getRecords().filter(r => r.user === currentUser);
+  recs = filterByMonthYear(recs, mm, yy).reverse();
+  const tbody = document.getElementById('history-body');
+  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
+  tbody.innerHTML = recs.map(r => `
+    <tr>
+      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</span></td>
+      <td>${r.date}</td>
+      <td>${r.time || '—'}</td>
+      <td>${r.notes ? `<a href="${r.notes.startsWith('http') ? r.notes : '#'}" target="_blank" style="color:var(--blue);font-size:12px">${r.notes.startsWith('http') ? '📎 Document' : r.notes}</a>` : '—'}</td>
+    </tr>`).join('');
+}
+
+// ═══════════════════════════════════════════════════
+// REPORT
+// ═══════════════════════════════════════════════════
+function renderReport() {
+  const fu = document.getElementById('rep-user').value;
+  const mm = document.getElementById('rep-month').value;
+  const yy = document.getElementById('rep-year').value;
+  const u = USERS[currentUser];
+  let recs = getRecords();
+  if (!u.admin) recs = recs.filter(r => r.user === currentUser);
+  else if (fu) recs = recs.filter(r => r.user === fu);
+  recs = filterByMonthYear(recs, mm, yy);
+
+  // Stats
+  const clockIns = recs.filter(r => r.type === 'Clock In').length;
+  const occurrences = recs.filter(r => !['Clock In','Clock Out'].includes(r.type)).length;
+  const days = [...new Set(recs.map(r => r.date))].length;
+  document.getElementById('report-stats').innerHTML = `
+    <div class="stat-card"><div class="stat-value" style="color:var(--green)">${clockIns}</div><div class="stat-label">Clock Ins</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--blue)">${days}</div><div class="stat-label">Active Days</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--gold)">${occurrences}</div><div class="stat-label">Occurrences</div></div>
+  `;
+
+  const tbody = document.getElementById('report-body');
+  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
+  tbody.innerHTML = recs.slice().reverse().map(r => `
+    <tr>
+      <td><span style="font-weight:500">${r.name}</span></td>
+      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</span></td>
+      <td>${r.date}</td>
+      <td>${r.time || '—'}</td>
+      <td>${r.notes ? `<a href="${r.notes.startsWith('http') ? r.notes : '#'}" target="_blank" style="color:var(--blue);font-size:12px">${r.notes.startsWith('http') ? '📎 Doc' : r.notes}</a>` : '—'}</td>
+    </tr>`).join('');
+}
+
+function exportCSV() {
+  const fu = document.getElementById('rep-user').value;
+  const mm = document.getElementById('rep-month').value;
+  const yy = document.getElementById('rep-year').value;
+  const u = USERS[currentUser];
+  let recs = getRecords();
+  if (!u.admin) recs = recs.filter(r => r.user === currentUser);
+  else if (fu) recs = recs.filter(r => r.user === fu);
+  recs = filterByMonthYear(recs, mm, yy);
+
+  const months = ['','jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const suffix = [fu||'all', mm ? months[parseInt(mm)] : '', yy||''].filter(Boolean).join('_');
+  const csv = 'Collaborator,Type,Date,Time,Notes\n' + recs.map(r =>
+    `"${r.name}","${r.type}","${r.date}","${r.time||''}","${r.notes||''}"`).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `credix_timetrack_${suffix}.csv`; a.click();
+  showToast('✅ CSV exported!', 'success');
+}
+
+// ═══════════════════════════════════════════════════
+// ADMIN
+// ═══════════════════════════════════════════════════
+function renderAdmin() {
+  const fu = document.getElementById('admin-user').value;
+  const mm = document.getElementById('admin-month').value;
+  const yy = document.getElementById('admin-year').value;
+  let recs = getRecords();
+  if (fu) recs = recs.filter(r => r.user === fu);
+  recs = filterByMonthYear(recs, mm, yy).reverse();
+
+  const tbody = document.getElementById('admin-body');
+  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
+  tbody.innerHTML = recs.map(r => `
+    <tr>
+      <td><span style="font-weight:500">${r.name}</span></td>
+      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</span></td>
+      <td>${r.date}</td>
+      <td>${r.time || '—'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes ? `<a href="${r.notes.startsWith('http') ? r.notes : '#'}" target="_blank" style="color:var(--blue);font-size:12px">${r.notes.startsWith('http') ? '📎 Doc' : r.notes}</a>` : '—'}</td>
+      <td>
+        <span class="edit-icon" onclick="openEdit('${r.id}')">✏️</span>
+        <span class="delete-icon" onclick="deleteRecord('${r.id}')">🗑</span>
+      </td>
+    </tr>`).join('');
+}
+
+function openEdit(id) {
+  const rec = getRecords().find(r => r.id === id);
+  if (!rec) return;
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-user').value = rec.user;
+  document.getElementById('edit-type').value = rec.type;
+  // Convert date from DD/MM/YYYY to YYYY-MM-DD
+  const parts = rec.date.split('/');
+  document.getElementById('edit-date').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  document.getElementById('edit-time').value = rec.time || '';
+  document.getElementById('edit-notes').value = rec.notes || '';
+  openModal('edit-modal');
+}
+
+async function saveEdit() {
+  const id = document.getElementById('edit-id').value;
+  const userKey = document.getElementById('edit-user').value;
+  const type = document.getElementById('edit-type').value;
+  const dateRaw = document.getElementById('edit-date').value;
+  const time = document.getElementById('edit-time').value;
+  const notes = document.getElementById('edit-notes').value.trim();
+
+  if (!dateRaw) { showToast('Please select a date.', 'error'); return; }
+  const dateObj = new Date(dateRaw + 'T00:00:00');
+  const date = dateObj.toLocaleDateString('en-GB');
+
+  const recs = getRecords();
+  const existing = recs.find(r => r.id === id);
+  if (!existing) return;
+  const updated = { ...existing, user: userKey, name: USERS[userKey].name, type, date, time, notes };
+  await updateRecordRemote(updated);
+  closeModal('edit-modal');
+  renderAdmin();
+  showToast('✅ Record updated!', 'success');
+}
+
+async function deleteRecord(id) {
+  if (!confirm('Delete this record? This cannot be undone.')) return;
+  await deleteRecordRemote(id);
+  renderAdmin();
+  showToast('🗑 Record deleted.', 'success');
+}
+
+// ═══════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════
+function filterByMonthYear(recs, mm, yy) {
+  return recs.filter(r => {
+    const parts = r.date.split('/');
+    if (mm && parts[1] !== mm) return false;
+    if (yy && parts[2] !== String(yy)) return false;
+    return true;
+  });
+}
+
+function typeClass(type) {
+  const map = { 'Clock In':'in', 'Clock Out':'out', 'Day Off':'dayoff', 'Medical Leave':'medical', 'Holiday':'holiday', 'Vacation':'vacation' };
+  return map[type] || 'out';
+}
+function typeIcon(type) {
+  const map = { 'Clock In':'▶', 'Clock Out':'■', 'Day Off':'☀️', 'Medical Leave':'🏥', 'Holiday':'🎉', 'Vacation':'✈️' };
+  return map[type] || '•';
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+let toastTimer;
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = `toast ${type} show`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+});
+
+// Load users on page load to populate login dropdown
+loadUsers().then(() => refreshDropdowns());
+
+// ── PASSWORD ─────────────────────────────────────────────
+function getAdminPassword() {
+  return localStorage.getItem('credix_admin_pwd') || 'credix2026';
+}
+
+function togglePasswordField() {
+  const user = document.getElementById('login-user').value;
+  const field = document.getElementById('password-field');
+  const forgotLink = document.getElementById('forgot-pwd-link');
+  field.style.display = user === 'enzo' ? 'block' : 'none';
+  forgotLink.style.display = user === 'enzo' ? 'block' : 'none';
+  if (user !== 'enzo') document.getElementById('login-password').value = '';
+}
+
+function changePassword() {
+  const newPwd = document.getElementById('new-password').value;
+  const confirmPwd = document.getElementById('confirm-password').value;
+  if (!newPwd) { showToast('Please enter a new password.', 'error'); return; }
+  if (newPwd.length < 4) { showToast('Password must be at least 4 characters.', 'error'); return; }
+  if (newPwd !== confirmPwd) { showToast('Passwords do not match.', 'error'); return; }
+  localStorage.setItem('credix_admin_pwd', newPwd);
+  document.getElementById('new-password').value = '';
+  document.getElementById('confirm-password').value = '';
+  showToast('✅ Password updated successfully!', 'success');
+}
+
+function getSecurityWord() {
+  return localStorage.getItem('credix_security_word') || '';
+}
+
+function changeSecurityWord() {
+  const word = document.getElementById('new-security-word').value.trim();
+  if (!word) { showToast('Please enter a security word.', 'error'); return; }
+  localStorage.setItem('credix_security_word', word.toLowerCase());
+  document.getElementById('new-security-word').value = '';
+  showToast('✅ Security word updated!', 'success');
+}
+
+function openForgotPassword() {
+  if (!getSecurityWord()) {
+    showToast('No security word set. Contact your admin.', 'error'); return;
+  }
+  document.getElementById('forgot-security-word').value = '';
+  document.getElementById('forgot-new-pwd-section').style.display = 'none';
+  document.getElementById('forgot-btn').textContent = 'Verify';
+  document.getElementById('forgot-btn').onclick = verifySecurityWord;
+  openModal('forgot-modal');
+}
+
+function verifySecurityWord() {
+  const word = document.getElementById('forgot-security-word').value.trim().toLowerCase();
+  if (word !== getSecurityWord()) {
+    showToast('Incorrect security word.', 'error'); return;
+  }
+  document.getElementById('forgot-new-pwd-section').style.display = 'block';
+  document.getElementById('forgot-btn').textContent = 'Reset Password';
+  document.getElementById('forgot-btn').onclick = resetPassword;
+}
+
+function resetPassword() {
+  const newPwd = document.getElementById('forgot-new-pwd').value;
+  const confirmPwd = document.getElementById('forgot-confirm-pwd').value;
+  if (!newPwd) { showToast('Please enter a new password.', 'error'); return; }
+  if (newPwd.length < 4) { showToast('Password must be at least 4 characters.', 'error'); return; }
+  if (newPwd !== confirmPwd) { showToast('Passwords do not match.', 'error'); return; }
+  localStorage.setItem('credix_admin_pwd', newPwd);
+  closeModal('forgot-modal');
+  showToast('✅ Password reset successfully!', 'success');
+}
+
+// Show/hide Drive field based on type
+document.getElementById('occ-type').addEventListener('change', function() {
+  document.getElementById('drive-field').style.display = this.value === 'Medical Leave' ? 'block' : 'none';
+});
+document.getElementById('drive-field').style.display = 'none';
+</script>
+</body>
+</html>
