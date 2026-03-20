@@ -910,8 +910,45 @@ async function loadUsers() {
 async function loadRecords() {
   try {
     const res = await apiGet('getRecords');
-    if (res.success) ALL_RECORDS = res.records;
+    if (res.success) {
+      ALL_RECORDS = res.records.map(function(r) {
+        return {
+          id: String(r.id || ''),
+          user: String(r.user || ''),
+          name: String(r.name || ''),
+          type: String(r.type || ''),
+          date: formatSheetDate(r.date),
+          time: formatSheetTime(r.time),
+          notes: String(r.notes || ''),
+          timestamp: String(r.timestamp || '')
+        };
+      });
+    }
   } catch(e) { ALL_RECORDS = []; }
+}
+
+function formatSheetDate(val) {
+  if (!val || val === '') return '';
+  const s = String(val);
+  // Already DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  // ISO or other date format
+  const d = new Date(s);
+  if (!isNaN(d)) return d.toLocaleDateString('en-GB');
+  return s;
+}
+
+function formatSheetTime(val) {
+  if (!val || val === '') return '';
+  const s = String(val);
+  // Already HH:MM:SS
+  if (/^\d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  // ISO date-time like 1899-12-30T12:57:32.000Z
+  if (s.includes('T')) {
+    const d = new Date(s);
+    if (!isNaN(d)) return d.toLocaleTimeString('en-GB');
+  }
+  return s;
 }
 
 function getRecords() { return ALL_RECORDS; }
@@ -1183,6 +1220,27 @@ function updateStatus() {
   }
 }
 
+function formatTime(val) {
+  if (!val || val === '') return '—';
+  // If it's an ISO string like 1899-12-30T12:57:32.000Z, extract HH:MM:SS
+  if (String(val).includes('T')) {
+    const d = new Date(val);
+    return d.toLocaleTimeString('en-GB');
+  }
+  // If already formatted like HH:MM:SS
+  return String(val);
+}
+
+function formatDate(val) {
+  if (!val || val === '') return '—';
+  // If it's an ISO string, convert to DD/MM/YYYY
+  if (String(val).includes('T') || String(val).includes('-')) {
+    const d = new Date(val);
+    if (!isNaN(d)) return d.toLocaleDateString('en-GB');
+  }
+  return String(val);
+}
+
 function renderToday() {
   const today = todayStr();
   const recs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today);
@@ -1191,7 +1249,7 @@ function renderToday() {
   if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
   let rows = '';
   recs.forEach(function(r) {
-    rows += '<div class="log-row"><div class="log-type ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + r.type + '</div><div class="log-time">' + (r.time || '—') + '</div></div>';
+    rows += '<div class="log-row"><div class="log-type ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + r.type + '</div><div class="log-time">' + formatTime(r.time) + '</div></div>';
   });
   el.innerHTML = rows;
 }
@@ -1384,18 +1442,10 @@ function renderAdmin() {
 
   const tbody = document.getElementById('admin-body');
   if (!recs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
-  tbody.innerHTML = recs.map(r => `
-    <tr>
-      <td><span style="font-weight:500">${r.name}</span></td>
-      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</span></td>
-      <td>${r.date}</td>
-      <td>${r.time || '—'}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes ? `<a href="${r.notes.startsWith('http') ? r.notes : '#'}" target="_blank" style="color:var(--blue);font-size:12px">${r.notes.startsWith('http') ? '📎 Doc' : r.notes}</a>` : '—'}</td>
-      <td>
-        <span class="edit-icon" onclick="openEdit('${r.id}')">✏️</span>
-        <span class="delete-icon" onclick="deleteRecord('${r.id}')">🗑</span>
-      </td>
-    </tr>`).join('');
+  tbody.innerHTML = recs.map(function(r) {
+    const notesCell = r.notes ? '<a href="' + (String(r.notes).startsWith('http') ? r.notes : '#') + '" target="_blank" style="color:var(--blue);font-size:12px">' + (String(r.notes).startsWith('http') ? '📎 Doc' : r.notes) + '</a>' : '—';
+    return '<tr><td><span style="font-weight:500">' + r.name + '</span></td><td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + r.type + '</span></td><td>' + formatDate(r.date) + '</td><td>' + formatTime(r.time) + '</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + notesCell + '</td><td><span class="edit-icon" onclick="openEdit(\'' + r.id + '\')">✏️</span><span class="delete-icon" onclick="deleteRecord(\'' + r.id + '\')">🗑</span></td></tr>';
+  }).join('');
 }
 
 function openEdit(id) {
