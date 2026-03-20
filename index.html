@@ -1160,7 +1160,10 @@ async function punch(type) {
   };
   showToast('Saving...', 'success');
   await saveRecordRemote(rec);
-  updateStatus(); renderToday();
+  // Also update local array immediately so UI updates without reloading
+  ALL_RECORDS.push(rec);
+  updateStatus();
+  renderToday();
   showToast(type === 'Clock In' ? '▶ Clocked in successfully!' : '■ Clocked out successfully!', 'success');
 }
 
@@ -1182,14 +1185,15 @@ function updateStatus() {
 
 function renderToday() {
   const today = todayStr();
-  const recs = getRecords().filter(r => r.user === currentUser && r.date === today);
+  const recs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today);
   const el = document.getElementById('today-log');
+  if (!el) return;
   if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
-  el.innerHTML = recs.map(r => `
-    <div class="log-row">
-      <div class="log-type ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</div>
-      <div class="log-time">${r.time || '—'}</div>
-    </div>`).join('');
+  let rows = '';
+  recs.forEach(function(r) {
+    rows += '<div class="log-row"><div class="log-type ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + r.type + '</div><div class="log-time">' + (r.time || '—') + '</div></div>';
+  });
+  el.innerHTML = rows;
 }
 
 // ═══════════════════════════════════════════════════
