@@ -13,7 +13,24 @@ computador.
 As senhas **não** são gravadas em texto puro: o navegador envia apenas um hash
 SHA-256, então nem quem abre a planilha consegue ler a senha.
 
-## Passo a passo
+## Caminho mais rápido: substituir o arquivo inteiro
+
+O backend completo e atualizado está em **`apps-script/Code.gs`** neste
+repositório. No editor do Apps Script, apague todo o conteúdo do `Code.gs`,
+cole o arquivo daqui, salve e republique (passo 4 abaixo). É o mesmo código dos
+blocos abaixo, mais alguns ajustes de robustez:
+
+- trava (`LockService`) para duas pessoas gravando ao mesmo tempo não
+  embaralharem as linhas
+- data e hora gravadas como texto, para o Sheets não converter `11/08/2026`
+  conforme o idioma nem transformar `20:42:07` em horário serial `1899-12-30T...`
+- `updateRecord`/`deleteRecord` avisam quando o registro não é encontrado, em vez
+  de responder "salvo" sem alterar nada
+- `saveUsers` recusa uma lista vazia, para uma requisição com problema não apagar
+  todos os colaboradores
+- notas que começam com `=` não viram fórmula na planilha
+
+## Ou editar à mão
 
 1. Abra a planilha do ponto → menu **Extensões › Apps Script**.
 2. Cole o bloco 1 dentro do `handleRequest(e)`, junto dos outros `if (action === ...)`.
