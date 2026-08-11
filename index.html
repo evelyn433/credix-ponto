@@ -272,7 +272,7 @@ body {
 .log-type.in { color: var(--green); }
 .log-type.out { color: var(--red); }
 .log-type.dayoff { color: var(--blue); }
-.log-type.medical { color: var(var(--gold)); }
+.log-type.medical { color: var(--gold); }
 .log-type.holiday { color: var(--purple); }
 .log-type.vacation { color: var(--orange); }
 .log-time { color: var(--text2); font-size: 12px; font-weight: 500; }
@@ -432,7 +432,22 @@ tr:hover td { background: var(--surface2); }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {
-  .sidebar { display: none; }
+  .layout { flex-direction: column; }
+  .sidebar {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 12px;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand, .nav-section, .user-card { display: none !important; }
+  .nav-item { margin-bottom: 0; white-space: nowrap; flex-shrink: 0; }
+  .sidebar-footer { margin-top: 0; margin-left: auto; }
+  .btn-logout { width: auto; padding: 8px 12px; white-space: nowrap; }
   .main { margin-left: 0; padding: 20px; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .clock-card { flex-direction: column; }
@@ -452,7 +467,7 @@ tr:hover td { background: var(--surface2); }
     <div class="login-sub">Select your name to clock in</div>
     <div class="field">
       <label>Who are you?</label>
-      <select id="login-user" onchange="togglePasswordField()">
+      <select id="login-user" onchange="togglePasswordField()" onkeydown="if(event.key==='Enter')doLogin()">
         <option value="">Select your name...</option>
         <option value="evelyn">Evelyn</option>
         <option value="patrick">Patrick</option>
@@ -528,16 +543,16 @@ tr:hover td { background: var(--surface2); }
       </div>
 
       <div class="nav-section">Main</div>
-      <div class="nav-item active dashboard-nav" onclick="showPage('dashboard')" id="nav-dashboard">
+      <div class="nav-item active dashboard-nav" data-page="dashboard" onclick="showPage('dashboard')" id="nav-dashboard">
         <span class="icon">⏱</span> Dashboard
       </div>
-      <div class="nav-item" onclick="showPage('history')">
+      <div class="nav-item" data-page="history" onclick="showPage('history')">
         <span class="icon">📋</span> History
       </div>
-      <div class="nav-item" onclick="showPage('report')">
+      <div class="nav-item" data-page="report" onclick="showPage('report')">
         <span class="icon">📊</span> Reports
       </div>
-      <div class="nav-item admin-nav" onclick="showPage('admin')" style="display:none">
+      <div class="nav-item admin-nav" data-page="admin" onclick="showPage('admin')" style="display:none">
         <span class="icon">⚙️</span> Admin Panel
       </div>
 
@@ -720,7 +735,7 @@ tr:hover td { background: var(--surface2); }
 
         <div style="margin-top:28px;">
           <div class="page-title" style="font-size:16px;margin-bottom:4px;">Change Password</div>
-          <div class="page-sub" style="margin-bottom:20px;">Update your admin password</div>
+          <div class="page-sub" style="margin-bottom:20px;">Update the admin password — applies on every device</div>
           <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
             <div style="flex:1;min-width:180px;">
               <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Password</div>
@@ -870,7 +885,8 @@ const API_URL = "https://script.google.com/macros/s/AKfycbybem_4w5ogS6qglVgaqKCm
 // API
 // ═══════════════════════════════════════════════════
 async function apiGet(action) {
-  const res = await fetch(API_URL + '?action=' + action);
+  const res = await fetch(API_URL + '?action=' + encodeURIComponent(action));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
 }
 
@@ -879,52 +895,63 @@ async function apiPost(action, data) {
     method: 'POST',
     body: JSON.stringify({ action, ...data })
   });
-  return res.json();
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (json && json.success === false) throw new Error(json.error || 'Request failed');
+  return json;
 }
 
 // ═══════════════════════════════════════════════════
 // DATA
 // ═══════════════════════════════════════════════════
+const DEFAULT_USERS = {
+  evelyn:     { name: 'Evelyn',     admin: false },
+  patrick:    { name: 'Patrick',    admin: false },
+  elisangela: { name: 'Elisangela', admin: false },
+  enzo:       { name: 'Enzo',       admin: true  }
+};
+
 let USERS = {};
 let ALL_RECORDS = [];
 let currentUser = null;
 
+function isAdmin(key) { return !!(USERS[key] && USERS[key].admin); }
+
 async function loadUsers() {
   try {
     const res = await apiGet('getUsers');
-    if (res.success) {
+    if (res && res.success && Array.isArray(res.users) && res.users.length) {
       USERS = {};
-      res.users.forEach(u => { USERS[u.key] = { name: u.name, admin: u.admin }; });
+      res.users.forEach(function(u) {
+        USERS[String(u.key)] = { name: String(u.name), admin: u.admin === true || u.admin === 'true' };
+      });
+      return;
     }
-  } catch(e) {
-    // fallback
-    USERS = {
-      evelyn:     { name: 'Evelyn',     admin: false },
-      patrick:    { name: 'Patrick',    admin: false },
-      elisangela: { name: 'Elisangela', admin: false },
-      enzo:       { name: 'Enzo',       admin: true  }
-    };
-  }
+  } catch(e) {}
+  USERS = Object.assign({}, DEFAULT_USERS);
 }
 
 async function loadRecords() {
   try {
     const res = await apiGet('getRecords');
-    if (res.success) {
-      ALL_RECORDS = res.records.map(function(r) {
-        return {
-          id: String(r.id || ''),
-          user: String(r.user || ''),
-          name: String(r.name || ''),
-          type: String(r.type || ''),
-          date: formatSheetDate(r.date),
-          time: formatSheetTime(r.time),
-          notes: String(r.notes || ''),
-          timestamp: String(r.timestamp || '')
-        };
-      });
-    }
-  } catch(e) { ALL_RECORDS = []; }
+    if (!res || !res.success || !Array.isArray(res.records)) throw new Error('Invalid response');
+    ALL_RECORDS = res.records.map(function(r) {
+      return {
+        id: String(r.id || ''),
+        user: String(r.user || ''),
+        name: String(r.name || ''),
+        type: String(r.type || ''),
+        date: formatSheetDate(r.date),
+        time: formatSheetTime(r.time),
+        notes: String(r.notes || ''),
+        timestamp: String(r.timestamp || '')
+      };
+    });
+    return true;
+  } catch(e) {
+    showToast('⚠️ Could not reach the spreadsheet — showing the last loaded data.', 'error');
+    return false;
+  }
 }
 
 function formatSheetDate(val) {
@@ -953,20 +980,20 @@ function formatSheetTime(val) {
 
 function getRecords() { return ALL_RECORDS; }
 
-function saveRecordRemote(rec) {
+async function saveRecordRemote(rec) {
+  await apiPost('addRecord', { record: rec });
   ALL_RECORDS.push(rec);
-  return apiPost('addRecord', { record: rec });
 }
 
-function updateRecordRemote(rec) {
+async function updateRecordRemote(rec) {
+  await apiPost('updateRecord', { record: rec });
   const idx = ALL_RECORDS.findIndex(r => r.id === rec.id);
   if (idx > -1) ALL_RECORDS[idx] = rec;
-  return apiPost('updateRecord', { record: rec });
 }
 
-function deleteRecordRemote(id) {
+async function deleteRecordRemote(id) {
+  await apiPost('deleteRecord', { id });
   ALL_RECORDS = ALL_RECORDS.filter(r => r.id !== id);
-  return apiPost('deleteRecord', { id });
 }
 
 async function saveUsersRemote(usersObj) {
@@ -977,25 +1004,24 @@ async function saveUsersRemote(usersObj) {
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
 function refreshDropdowns() {
-  const selects = [
-    document.getElementById('login-user'),
-    document.getElementById('rep-user'),
-    document.getElementById('admin-user'),
-    document.getElementById('edit-user'),
-  ];
-  selects.forEach(sel => {
+  // login picks one person, filters allow "all", the edit modal must never allow an empty pick
+  const placeholders = {
+    'login-user': '<option value="">Select your name...</option>',
+    'rep-user': '<option value="">All collaborators</option>',
+    'admin-user': '<option value="">All collaborators</option>',
+    'edit-user': ''
+  };
+  Object.keys(placeholders).forEach(id => {
+    const sel = document.getElementById(id);
     if (!sel) return;
-    const isLogin = sel.id === 'login-user';
     const cur = sel.value;
-    sel.innerHTML = isLogin
-      ? '<option value="">Select your name...</option>'
-      : '<option value="">All collaborators</option>';
+    sel.innerHTML = placeholders[id];
     Object.entries(USERS).forEach(([key, u]) => {
       const opt = document.createElement('option');
       opt.value = key; opt.textContent = u.name + (u.admin ? ' ★' : '');
       sel.appendChild(opt);
     });
-    if (cur) sel.value = cur;
+    if (cur && USERS[cur]) sel.value = cur;
   });
 }
 
@@ -1004,9 +1030,12 @@ async function addCollaborator() {
   const name = nameInput.value.trim();
   if (!name) { showToast('Please enter a name.', 'error'); return; }
   const key = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+  if (!key) { showToast('Please use letters or numbers in the name.', 'error'); return; }
   if (USERS[key]) { showToast('A collaborator with this name already exists.', 'error'); return; }
-  USERS[key] = { name, admin: false };
-  await saveUsersRemote(USERS);
+  const next = Object.assign({}, USERS, { [key]: { name, admin: false } });
+  try { await saveUsersRemote(next); }
+  catch(e) { showToast('❌ Could not save — check your connection and try again.', 'error'); return; }
+  USERS = next;
   nameInput.value = '';
   refreshDropdowns();
   renderCollaborators();
@@ -1017,8 +1046,11 @@ async function removeCollaborator(key) {
   if (!USERS[key]) return;
   if (USERS[key].admin) { showToast('Cannot remove the admin.', 'error'); return; }
   if (!confirm('Remove ' + USERS[key].name + '? Their records will be kept.')) return;
-  delete USERS[key];
-  await saveUsersRemote(USERS);
+  const next = Object.assign({}, USERS);
+  delete next[key];
+  try { await saveUsersRemote(next); }
+  catch(e) { showToast('❌ Could not save — check your connection and try again.', 'error'); return; }
+  USERS = next;
   refreshDropdowns();
   renderCollaborators();
   showToast('Collaborator removed.', 'success');
@@ -1026,9 +1058,9 @@ async function removeCollaborator(key) {
 
 async function refreshAdmin() {
   showToast('Refreshing...', 'success');
-  await loadRecords();
+  const ok = await loadRecords();
   renderAdmin();
-  showToast('✅ Updated!', 'success');
+  if (ok) showToast('✅ Updated!', 'success');
 }
 
 function renderCollaborators() {
@@ -1044,7 +1076,7 @@ function renderCollaborators() {
     const actionCell = u.admin
       ? '<span style="color:var(--text3);font-size:12px">&mdash;</span>'
       : '<button class="btn btn-danger btn-sm remove-collab-btn" data-key="' + key + '">&#128465; Remove</button>';
-    rows += '<tr><td><span style="font-weight:500">' + u.name + '</span></td><td>' + roleCell + '</td><td>' + actionCell + '</td></tr>';
+    rows += '<tr><td><span style="font-weight:500">' + escapeHtml(u.name) + '</span></td><td>' + roleCell + '</td><td>' + actionCell + '</td></tr>';
   });
   tbody.innerHTML = rows;
   tbody.querySelectorAll('.remove-collab-btn').forEach(function(btn) {
@@ -1053,11 +1085,6 @@ function renderCollaborators() {
     });
   });
 }
-
-function getRecords() { return JSON.parse(localStorage.getItem('cp_records_v2') || '[]'); }
-function saveRecords(r) { localStorage.setItem('cp_records_v2', JSON.stringify(r)); }
-
-function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
 // ═══════════════════════════════════════════════════
 // CLOCK
@@ -1081,16 +1108,23 @@ async function doLogin() {
   const err = document.getElementById('login-error');
   if (!key) { err.textContent = 'Please select your name.'; return; }
 
-  // Check password for admin
-  if (key === 'enzo') {
-    const pwd = document.getElementById('login-password').value;
-    if (!pwd) { err.textContent = 'Please enter your password.'; return; }
-    if (pwd !== getAdminPassword()) { err.textContent = 'Incorrect password.'; return; }
-  }
-
   err.textContent = 'Loading...';
   await loadUsers();
+  await loadSettings();
+  refreshDropdowns();
+  document.getElementById('login-user').value = key;
+  togglePasswordField();
+
+  if (!USERS[key]) { err.textContent = 'This collaborator no longer exists.'; return; }
+
+  if (isAdmin(key)) {
+    const pwd = document.getElementById('login-password').value;
+    if (!pwd) { err.textContent = 'Please enter your password.'; return; }
+    if (!(await verifyAdminPassword(pwd))) { err.textContent = 'Incorrect password.'; return; }
+  }
+
   err.textContent = '';
+  document.getElementById('login-password').value = '';
   currentUser = key;
   initApp();
 }
@@ -1100,6 +1134,19 @@ function doLogout() {
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-user').value = '';
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-error').textContent = '';
+  togglePasswordField();
+  resetDashboardVisibility();
+}
+
+// the admin session hides the dashboard with !important, so it has to be cleared
+// before a collaborator logs in on the same browser tab
+function resetDashboardVisibility() {
+  const dashNav = document.querySelector('.dashboard-nav');
+  const dashPage = document.getElementById('page-dashboard');
+  if (dashNav) dashNav.style.removeProperty('display');
+  if (dashPage) dashPage.style.removeProperty('display');
 }
 
 async function initApp() {
@@ -1107,7 +1154,7 @@ async function initApp() {
   document.getElementById('app').style.display = 'block';
 
   const u = USERS[currentUser];
-  document.getElementById('sidebar-avatar').textContent = u.name[0];
+  document.getElementById('sidebar-avatar').textContent = u.name.charAt(0).toUpperCase();
   document.getElementById('sidebar-name').textContent = u.name;
   document.getElementById('greeting-name').textContent = u.name;
   document.getElementById('sidebar-role').innerHTML = u.admin
@@ -1130,31 +1177,26 @@ async function initApp() {
     if (yEl) yEl.value = yy;
   });
 
+  refreshDropdowns();
+
   // Lock report user to self if not admin
   const repUser = document.getElementById('rep-user');
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
-  else { repUser.disabled = false; }
-
-  refreshDropdowns();
-  const sidebar = document.querySelector('.sidebar');
-  const mainEl = document.querySelector('.main');
+  else { repUser.value = ''; repUser.disabled = false; }
 
   // Load all records from backend
   showToast('Loading...', 'success');
   await loadRecords();
 
-  if (USERS[currentUser]?.admin) {
-    sidebar.style.display = 'flex';
-    mainEl.style.marginLeft = '240px';
-    // Hide dashboard nav and page for admin
+  if (u.admin) {
+    // the admin manages other people's records and does not clock in here
     const dashNav = document.querySelector('.dashboard-nav');
     const dashPage = document.getElementById('page-dashboard');
     if (dashNav) dashNav.style.setProperty('display', 'none', 'important');
     if (dashPage) dashPage.style.setProperty('display', 'none', 'important');
     showPage('admin');
   } else {
-    sidebar.style.display = 'none';
-    mainEl.style.marginLeft = '0';
+    resetDashboardVisibility();
     updateStatus();
     renderToday();
     showPage('dashboard');
@@ -1167,28 +1209,40 @@ async function initApp() {
 function showPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById(`page-${page}`).classList.add('active');
-  event && event.currentTarget && event.currentTarget.classList.add('active');
+  const pageEl = document.getElementById('page-' + page);
+  if (pageEl) pageEl.classList.add('active');
+  const navEl = document.querySelector('.nav-item[data-page="' + page + '"]');
+  if (navEl) navEl.classList.add('active');
 
-  if (page === 'history') { loadRecords().then(renderHistory); }
-  if (page === 'report') { loadRecords().then(renderReport); }
+  if (page === 'history') { loadRecords().then(() => renderHistory()); }
+  if (page === 'report') { loadRecords().then(() => renderReport()); }
   if (page === 'admin') { loadRecords().then(() => { renderAdmin(); renderCollaborators(); }); }
 }
 
 // ═══════════════════════════════════════════════════
 // PUNCH
 // ═══════════════════════════════════════════════════
-function getLastTodayRecord() {
-  const today = todayStr();
-  const recs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today && (r.type === 'Clock In' || r.type === 'Clock Out'));
-  return recs.length ? recs[recs.length-1] : null;
-}
-
 function todayStr() {
   return new Date().toLocaleDateString('en-GB');
 }
 
+function todayRecords() {
+  const today = todayStr();
+  return ALL_RECORDS
+    .filter(r => r.user === currentUser && r.date === today)
+    .sort((a, b) => timeKey(a.time) - timeKey(b.time));
+}
+
+function getLastTodayRecord() {
+  const recs = todayRecords().filter(r => r.type === 'Clock In' || r.type === 'Clock Out');
+  return recs.length ? recs[recs.length-1] : null;
+}
+
 async function punch(type) {
+  const btnIn = document.getElementById('btn-in');
+  const btnOut = document.getElementById('btn-out');
+  btnIn.disabled = true; btnOut.disabled = true;
+
   const now = new Date();
   const rec = {
     id: genId(), user: currentUser, name: USERS[currentUser].name,
@@ -1196,12 +1250,14 @@ async function punch(type) {
     time: now.toLocaleTimeString('en-GB'), notes: '', timestamp: now.toISOString()
   };
   showToast('Saving...', 'success');
-  await saveRecordRemote(rec);
-  // Also update local array immediately so UI updates without reloading
-  ALL_RECORDS.push(rec);
+  try {
+    await saveRecordRemote(rec);
+    showToast(type === 'Clock In' ? '▶ Clocked in successfully!' : '■ Clocked out successfully!', 'success');
+  } catch(e) {
+    showToast('❌ Not saved — check your connection and try again.', 'error');
+  }
   updateStatus();
   renderToday();
-  showToast(type === 'Clock In' ? '▶ Clocked in successfully!' : '■ Clocked out successfully!', 'success');
 }
 
 function updateStatus() {
@@ -1242,14 +1298,13 @@ function formatDate(val) {
 }
 
 function renderToday() {
-  const today = todayStr();
-  const recs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today);
+  const recs = todayRecords();
   const el = document.getElementById('today-log');
   if (!el) return;
   if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
   let rows = '';
   recs.forEach(function(r) {
-    rows += '<div class="log-row"><div class="log-type ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + r.type + '</div><div class="log-time">' + formatTime(r.time) + '</div></div>';
+    rows += '<div class="log-row"><div class="log-type ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</div><div class="log-time">' + formatTime(r.time) + '</div></div>';
   });
   el.innerHTML = rows;
 }
@@ -1258,7 +1313,7 @@ function renderToday() {
 // OCCURRENCE
 // ═══════════════════════════════════════════════════
 function openOccurrenceModal() {
-  document.getElementById('occ-date-start').value = new Date().toISOString().slice(0,10);
+  document.getElementById('occ-date-start').value = localDateInput();
   document.getElementById('occ-date-end').value = '';
   document.getElementById('occ-drive').value = '';
   document.getElementById('occ-notes').value = '';
@@ -1269,8 +1324,8 @@ function openOccurrenceModal() {
 let pendingOccurrenceData = null;
 
 function checkPartialDay(type, dates) {
-  const today = new Date().toLocaleDateString('en-GB');
-  const todayRecs = ALL_RECORDS.filter(r => r.user === currentUser && r.date === today);
+  const today = todayStr();
+  const todayRecs = todayRecords();
   const hasClockIn = todayRecs.some(r => r.type === 'Clock In');
   const hasClockOut = todayRecs.some(r => r.type === 'Clock Out');
 
@@ -1295,17 +1350,20 @@ async function savePartialDay(saveClockOut) {
   if (saveClockOut) {
     const timeVal = document.getElementById('partial-clockout-time').value;
     if (timeVal) {
-      const today = new Date().toLocaleDateString('en-GB');
       const rec = {
         id: genId(), user: currentUser, name: USERS[currentUser].name,
-        type: 'Clock Out', date: today,
-        time: timeVal + ':00', notes: 'Partial day — ' + (pendingOccurrenceData?.type || 'occurrence'),
+        type: 'Clock Out', date: todayStr(),
+        time: normalizeTime(timeVal), notes: 'Partial day — ' + (pendingOccurrenceData?.type || 'occurrence'),
         timestamp: new Date().toISOString()
       };
-      await saveRecordRemote(rec);
+      try {
+        await saveRecordRemote(rec);
+        showToast('✅ Clock out registered at ' + timeVal, 'success');
+      } catch(e) {
+        showToast('❌ Clock out not saved — check your connection.', 'error');
+      }
       updateStatus();
       renderToday();
-      showToast('✅ Clock out registered at ' + timeVal, 'success');
     }
   }
   pendingOccurrenceData = null;
@@ -1335,13 +1393,21 @@ async function saveOccurrence() {
 
   showToast('Saving ' + dates.length + ' day(s)...', 'success');
 
-  for (const d of dates) {
-    const rec = {
-      id: genId(), user: currentUser, name: USERS[currentUser].name,
-      type, date: d.toLocaleDateString('en-GB'),
-      time: '', notes: drive || notes, timestamp: new Date().toISOString()
-    };
-    await saveRecordRemote(rec);
+  let saved = 0;
+  try {
+    for (const d of dates) {
+      const rec = {
+        id: genId(), user: currentUser, name: USERS[currentUser].name,
+        type, date: d.toLocaleDateString('en-GB'),
+        time: '', notes: drive || notes, timestamp: new Date().toISOString()
+      };
+      await saveRecordRemote(rec);
+      saved++;
+    }
+  } catch(e) {
+    renderToday();
+    showToast('❌ Saved ' + saved + ' of ' + dates.length + ' day(s) — check your connection.', 'error');
+    return;
   }
 
   closeModal('occurrence-modal');
@@ -1362,15 +1428,15 @@ function renderHistory() {
   const mm = document.getElementById('hist-month').value;
   const yy = document.getElementById('hist-year').value;
   let recs = getRecords().filter(r => r.user === currentUser);
-  recs = filterByMonthYear(recs, mm, yy).reverse();
+  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
   const tbody = document.getElementById('history-body');
   if (!recs.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
   tbody.innerHTML = recs.map(r => `
     <tr>
-      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</span></td>
-      <td>${r.date}</td>
-      <td>${r.time || '—'}</td>
-      <td>${r.notes ? `<a href="${r.notes.startsWith('http') ? r.notes : '#'}" target="_blank" style="color:var(--blue);font-size:12px">${r.notes.startsWith('http') ? '📎 Document' : r.notes}</a>` : '—'}</td>
+      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${escapeHtml(r.type)}</span></td>
+      <td>${formatDate(r.date)}</td>
+      <td>${formatTime(r.time)}</td>
+      <td>${notesCell(r.notes, 'Document')}</td>
     </tr>`).join('');
 }
 
@@ -1385,7 +1451,7 @@ function renderReport() {
   let recs = getRecords();
   if (!u.admin) recs = recs.filter(r => r.user === currentUser);
   else if (fu) recs = recs.filter(r => r.user === fu);
-  recs = filterByMonthYear(recs, mm, yy);
+  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
 
   // Stats
   const clockIns = recs.filter(r => r.type === 'Clock In').length;
@@ -1399,13 +1465,13 @@ function renderReport() {
 
   const tbody = document.getElementById('report-body');
   if (!recs.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
-  tbody.innerHTML = recs.slice().reverse().map(r => `
+  tbody.innerHTML = recs.map(r => `
     <tr>
-      <td><span style="font-weight:500">${r.name}</span></td>
-      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${r.type}</span></td>
-      <td>${r.date}</td>
-      <td>${r.time || '—'}</td>
-      <td>${r.notes ? `<a href="${r.notes.startsWith('http') ? r.notes : '#'}" target="_blank" style="color:var(--blue);font-size:12px">${r.notes.startsWith('http') ? '📎 Doc' : r.notes}</a>` : '—'}</td>
+      <td><span style="font-weight:500">${escapeHtml(r.name)}</span></td>
+      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${escapeHtml(r.type)}</span></td>
+      <td>${formatDate(r.date)}</td>
+      <td>${formatTime(r.time)}</td>
+      <td>${notesCell(r.notes, 'Doc')}</td>
     </tr>`).join('');
 }
 
@@ -1417,12 +1483,15 @@ function exportCSV() {
   let recs = getRecords();
   if (!u.admin) recs = recs.filter(r => r.user === currentUser);
   else if (fu) recs = recs.filter(r => r.user === fu);
-  recs = filterByMonthYear(recs, mm, yy);
+  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'asc');
+
+  if (!recs.length) { showToast('Nothing to export for this filter.', 'error'); return; }
 
   const months = ['','jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   const suffix = [fu||'all', mm ? months[parseInt(mm)] : '', yy||''].filter(Boolean).join('_');
+  const csvCell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const csv = 'Collaborator,Type,Date,Time,Notes\n' + recs.map(r =>
-    `"${r.name}","${r.type}","${r.date}","${r.time||''}","${r.notes||''}"`).join('\n');
+    [r.name, r.type, r.date, r.time, r.notes].map(csvCell).join(',')).join('\n');
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `credix_timetrack_${suffix}.csv`; a.click();
@@ -1438,25 +1507,38 @@ function renderAdmin() {
   const yy = document.getElementById('admin-year').value;
   let recs = getRecords();
   if (fu) recs = recs.filter(r => r.user === fu);
-  recs = filterByMonthYear(recs, mm, yy).reverse();
+  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
 
   const tbody = document.getElementById('admin-body');
   if (!recs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
   tbody.innerHTML = recs.map(function(r) {
-    const notesCell = r.notes ? '<a href="' + (String(r.notes).startsWith('http') ? r.notes : '#') + '" target="_blank" style="color:var(--blue);font-size:12px">' + (String(r.notes).startsWith('http') ? '📎 Doc' : r.notes) + '</a>' : '—';
-    return '<tr><td><span style="font-weight:500">' + r.name + '</span></td><td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + r.type + '</span></td><td>' + formatDate(r.date) + '</td><td>' + formatTime(r.time) + '</td><td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + notesCell + '</td><td><span class="edit-icon" onclick="openEdit(\'' + r.id + '\')">✏️</span><span class="delete-icon" onclick="deleteRecord(\'' + r.id + '\')">🗑</span></td></tr>';
+    const id = escapeHtml(r.id);
+    return '<tr><td><span style="font-weight:500">' + escapeHtml(r.name) + '</span></td>'
+      + '<td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</span></td>'
+      + '<td>' + formatDate(r.date) + '</td><td>' + formatTime(r.time) + '</td>'
+      + '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + notesCell(r.notes, 'Doc') + '</td>'
+      + '<td><span class="edit-icon" data-edit-id="' + id + '">✏️</span>'
+      + '<span class="delete-icon" data-delete-id="' + id + '">🗑</span></td></tr>';
   }).join('');
+
+  tbody.querySelectorAll('[data-edit-id]').forEach(function(el) {
+    el.addEventListener('click', function() { openEdit(this.getAttribute('data-edit-id')); });
+  });
+  tbody.querySelectorAll('[data-delete-id]').forEach(function(el) {
+    el.addEventListener('click', function() { deleteRecord(this.getAttribute('data-delete-id')); });
+  });
 }
 
 function openEdit(id) {
   const rec = getRecords().find(r => r.id === id);
   if (!rec) return;
+  refreshDropdowns();
   document.getElementById('edit-id').value = id;
-  document.getElementById('edit-user').value = rec.user;
+  document.getElementById('edit-user').value = USERS[rec.user] ? rec.user : '';
   document.getElementById('edit-type').value = rec.type;
   // Convert date from DD/MM/YYYY to YYYY-MM-DD
-  const parts = rec.date.split('/');
-  document.getElementById('edit-date').value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  const parts = String(rec.date || '').split('/');
+  document.getElementById('edit-date').value = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : '';
   document.getElementById('edit-time').value = rec.time || '';
   document.getElementById('edit-notes').value = rec.notes || '';
   openModal('edit-modal');
@@ -1470,15 +1552,19 @@ async function saveEdit() {
   const time = document.getElementById('edit-time').value;
   const notes = document.getElementById('edit-notes').value.trim();
 
+  if (!userKey || !USERS[userKey]) { showToast('Please select a collaborator.', 'error'); return; }
   if (!dateRaw) { showToast('Please select a date.', 'error'); return; }
+  const isPunch = type === 'Clock In' || type === 'Clock Out';
+  if (isPunch && !time) { showToast('Clock in/out records need a time.', 'error'); return; }
+
   const dateObj = new Date(dateRaw + 'T00:00:00');
   const date = dateObj.toLocaleDateString('en-GB');
 
-  const recs = getRecords();
-  const existing = recs.find(r => r.id === id);
+  const existing = getRecords().find(r => r.id === id);
   if (!existing) return;
-  const updated = { ...existing, user: userKey, name: USERS[userKey].name, type, date, time, notes };
-  await updateRecordRemote(updated);
+  const updated = { ...existing, user: userKey, name: USERS[userKey].name, type, date, time: normalizeTime(time), notes };
+  try { await updateRecordRemote(updated); }
+  catch(e) { showToast('❌ Change not saved — check your connection.', 'error'); return; }
   closeModal('edit-modal');
   renderAdmin();
   showToast('✅ Record updated!', 'success');
@@ -1486,7 +1572,8 @@ async function saveEdit() {
 
 async function deleteRecord(id) {
   if (!confirm('Delete this record? This cannot be undone.')) return;
-  await deleteRecordRemote(id);
+  try { await deleteRecordRemote(id); }
+  catch(e) { showToast('❌ Could not delete — check your connection.', 'error'); return; }
   renderAdmin();
   showToast('🗑 Record deleted.', 'success');
 }
@@ -1494,9 +1581,54 @@ async function deleteRecord(id) {
 // ═══════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function notesCell(notes, label) {
+  const n = String(notes || '');
+  if (!n) return '—';
+  if (/^https?:\/\//i.test(n)) {
+    return '<a href="' + escapeHtml(n) + '" target="_blank" rel="noopener" style="color:var(--blue);font-size:12px">📎 ' + label + '</a>';
+  }
+  return '<span style="font-size:12px">' + escapeHtml(n) + '</span>';
+}
+
+function localDateInput(d) {
+  const x = d || new Date();
+  return [x.getFullYear(), String(x.getMonth()+1).padStart(2,'0'), String(x.getDate()).padStart(2,'0')].join('-');
+}
+
+function normalizeTime(t) {
+  if (!t) return '';
+  const p = String(t).split(':');
+  while (p.length < 3) p.push('00');
+  return p.slice(0,3).map(x => String(x).padStart(2,'0')).join(':');
+}
+
+function timeKey(t) {
+  const p = String(t || '').split(':');
+  return (parseInt(p[0],10) || 0) * 3600 + (parseInt(p[1],10) || 0) * 60 + (parseInt(p[2],10) || 0);
+}
+
+function dateKey(d) {
+  const p = String(d || '').split('/');
+  if (p.length !== 3) return 0;
+  return (parseInt(p[2],10) || 0) * 10000 + (parseInt(p[1],10) || 0) * 100 + (parseInt(p[0],10) || 0);
+}
+
+function sortRecords(recs, dir) {
+  return recs.slice().sort(function(a, b) {
+    const k = (dateKey(a.date) - dateKey(b.date)) || (timeKey(a.time) - timeKey(b.time));
+    return dir === 'desc' ? -k : k;
+  });
+}
+
 function filterByMonthYear(recs, mm, yy) {
   return recs.filter(r => {
-    const parts = r.date.split('/');
+    const parts = String(r.date || '').split('/');
     if (mm && parts[1] !== mm) return false;
     if (yy && parts[2] !== String(yy)) return false;
     return true;
@@ -1528,61 +1660,110 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 });
 
-// Load users on page load to populate login dropdown
-loadUsers().then(() => refreshDropdowns());
-
 // ── PASSWORD ─────────────────────────────────────────────
-function getAdminPassword() {
-  return localStorage.getItem('credix_admin_pwd') || 'credix2026';
+// Secrets are stored hashed in the spreadsheet so they work on every device.
+// Until the Apps Script exposes getSettings/saveSettings (see APPS_SCRIPT_SETUP.md)
+// this falls back to the browser and warns on save.
+const DEFAULT_ADMIN_PWD = 'credix2026';
+let SETTINGS = { pwdHash: '', wordHash: '' };
+let settingsRemote = false;
+
+async function hashSecret(value) {
+  const s = String(value);
+  if (!(window.crypto && crypto.subtle)) return 'plain:' + s;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function loadSettings() {
+  try {
+    const res = await apiGet('getSettings');
+    if (res && res.success && res.settings) {
+      settingsRemote = true;
+      SETTINGS = { pwdHash: String(res.settings.pwdHash || ''), wordHash: String(res.settings.wordHash || '') };
+      return;
+    }
+  } catch(e) {}
+  settingsRemote = false;
+  SETTINGS = {
+    pwdHash: localStorage.getItem('credix_pwd_hash') || '',
+    wordHash: localStorage.getItem('credix_word_hash') || ''
+  };
+}
+
+async function saveSettingsPatch(patch) {
+  const prev = SETTINGS;
+  SETTINGS = Object.assign({}, SETTINGS, patch);
+  if (settingsRemote) {
+    try { await apiPost('saveSettings', { settings: SETTINGS }); }
+    catch(e) { SETTINGS = prev; throw e; }
+    return true;
+  }
+  localStorage.setItem('credix_pwd_hash', SETTINGS.pwdHash);
+  localStorage.setItem('credix_word_hash', SETTINGS.wordHash);
+  return false;
+}
+
+const LOCAL_ONLY_WARNING = '⚠️ Saved in this browser only — set up the spreadsheet backend to share it across devices.';
+
+async function verifyAdminPassword(pwd) {
+  if (!SETTINGS.pwdHash) return pwd === DEFAULT_ADMIN_PWD;
+  return (await hashSecret(pwd)) === SETTINGS.pwdHash;
 }
 
 function togglePasswordField() {
-  const user = document.getElementById('login-user').value;
-  const field = document.getElementById('password-field');
-  const forgotLink = document.getElementById('forgot-pwd-link');
-  field.style.display = user === 'enzo' ? 'block' : 'none';
-  forgotLink.style.display = user === 'enzo' ? 'block' : 'none';
-  if (user !== 'enzo') document.getElementById('login-password').value = '';
+  const admin = isAdmin(document.getElementById('login-user').value);
+  document.getElementById('password-field').style.display = admin ? 'block' : 'none';
+  document.getElementById('forgot-pwd-link').style.display = admin ? 'block' : 'none';
+  if (!admin) document.getElementById('login-password').value = '';
 }
 
-function changePassword() {
+function validateNewPassword(newPwd, confirmPwd) {
+  if (!newPwd) { showToast('Please enter a new password.', 'error'); return false; }
+  if (newPwd.length < 4) { showToast('Password must be at least 4 characters.', 'error'); return false; }
+  if (newPwd !== confirmPwd) { showToast('Passwords do not match.', 'error'); return false; }
+  return true;
+}
+
+async function changePassword() {
   const newPwd = document.getElementById('new-password').value;
   const confirmPwd = document.getElementById('confirm-password').value;
-  if (!newPwd) { showToast('Please enter a new password.', 'error'); return; }
-  if (newPwd.length < 4) { showToast('Password must be at least 4 characters.', 'error'); return; }
-  if (newPwd !== confirmPwd) { showToast('Passwords do not match.', 'error'); return; }
-  localStorage.setItem('credix_admin_pwd', newPwd);
+  if (!validateNewPassword(newPwd, confirmPwd)) return;
+  let remote;
+  try { remote = await saveSettingsPatch({ pwdHash: await hashSecret(newPwd) }); }
+  catch(e) { showToast('❌ Could not save the password — check your connection.', 'error'); return; }
   document.getElementById('new-password').value = '';
   document.getElementById('confirm-password').value = '';
-  showToast('✅ Password updated successfully!', 'success');
+  showToast(remote ? '✅ Password updated on every device!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
 
-function getSecurityWord() {
-  return localStorage.getItem('credix_security_word') || '';
-}
-
-function changeSecurityWord() {
+async function changeSecurityWord() {
   const word = document.getElementById('new-security-word').value.trim();
   if (!word) { showToast('Please enter a security word.', 'error'); return; }
-  localStorage.setItem('credix_security_word', word.toLowerCase());
+  let remote;
+  try { remote = await saveSettingsPatch({ wordHash: await hashSecret(word.toLowerCase()) }); }
+  catch(e) { showToast('❌ Could not save the security word — check your connection.', 'error'); return; }
   document.getElementById('new-security-word').value = '';
-  showToast('✅ Security word updated!', 'success');
+  showToast(remote ? '✅ Security word updated!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
 
-function openForgotPassword() {
-  if (!getSecurityWord()) {
+async function openForgotPassword() {
+  await loadSettings();
+  if (!SETTINGS.wordHash) {
     showToast('No security word set. Contact your admin.', 'error'); return;
   }
   document.getElementById('forgot-security-word').value = '';
+  document.getElementById('forgot-new-pwd').value = '';
+  document.getElementById('forgot-confirm-pwd').value = '';
   document.getElementById('forgot-new-pwd-section').style.display = 'none';
   document.getElementById('forgot-btn').textContent = 'Verify';
   document.getElementById('forgot-btn').onclick = verifySecurityWord;
   openModal('forgot-modal');
 }
 
-function verifySecurityWord() {
+async function verifySecurityWord() {
   const word = document.getElementById('forgot-security-word').value.trim().toLowerCase();
-  if (word !== getSecurityWord()) {
+  if ((await hashSecret(word)) !== SETTINGS.wordHash) {
     showToast('Incorrect security word.', 'error'); return;
   }
   document.getElementById('forgot-new-pwd-section').style.display = 'block';
@@ -1590,16 +1771,24 @@ function verifySecurityWord() {
   document.getElementById('forgot-btn').onclick = resetPassword;
 }
 
-function resetPassword() {
+async function resetPassword() {
   const newPwd = document.getElementById('forgot-new-pwd').value;
   const confirmPwd = document.getElementById('forgot-confirm-pwd').value;
-  if (!newPwd) { showToast('Please enter a new password.', 'error'); return; }
-  if (newPwd.length < 4) { showToast('Password must be at least 4 characters.', 'error'); return; }
-  if (newPwd !== confirmPwd) { showToast('Passwords do not match.', 'error'); return; }
-  localStorage.setItem('credix_admin_pwd', newPwd);
+  if (!validateNewPassword(newPwd, confirmPwd)) return;
+  let remote;
+  try { remote = await saveSettingsPatch({ pwdHash: await hashSecret(newPwd) }); }
+  catch(e) { showToast('❌ Could not reset the password — check your connection.', 'error'); return; }
   closeModal('forgot-modal');
-  showToast('✅ Password reset successfully!', 'success');
+  showToast(remote ? '✅ Password reset successfully!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
+
+// Load users + settings on page load so the login screen knows who is admin
+(async function bootstrap() {
+  await loadUsers();
+  refreshDropdowns();
+  togglePasswordField();
+  await loadSettings();
+})();
 
 // Show/hide Drive field based on type
 document.getElementById('occ-type').addEventListener('change', function() {
