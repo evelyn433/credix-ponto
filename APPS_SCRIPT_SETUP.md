@@ -16,80 +16,65 @@ SHA-256, então nem quem abre a planilha consegue ler a senha.
 ## Passo a passo
 
 1. Abra a planilha do ponto → menu **Extensões › Apps Script**.
-2. Cole os blocos abaixo no final do arquivo do script.
-3. Adicione as duas linhas indicadas dentro do `doGet` e do `doPost` que já existem.
-4. Clique em **Implantar › Gerenciar implantações › editar (lápis) › Versão: Nova versão › Implantar**.
-   Sem esse passo o endereço `/exec` continua rodando o código antigo.
+2. Cole o bloco 1 dentro do `handleRequest(e)`, junto dos outros `if (action === ...)`.
+3. Cole o bloco 2 no final do arquivo, fora de qualquer função.
+4. Salve (Ctrl+S) e clique em **Implantar › Gerenciar implantações › editar (lápis) ›
+   Versão: Nova versão › Implantar**. Sem esse passo o endereço `/exec` continua
+   rodando o código antigo.
 5. Recarregue o app e troque a senha em **Admin Panel › Change Password**.
 
-## 1. Cole no final do script
+## Bloco 1 — dentro do `handleRequest(e)`
+
+O `doGet` e o `doPost` do script apenas repassam para `handleRequest(e)`, que já
+tem `action` e `ss` no escopo. Cole isto logo **antes** do
+`if (action === "getRecords")`, depois do bloco que cria a aba `Records`:
 
 ```javascript
-function getSettingsSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName('Settings');
-  if (!sh) {
-    sh = ss.insertSheet('Settings');
-    sh.appendRow(['key', 'value']);
-  }
-  return sh;
-}
+    // ── SETTINGS (senha do admin + palavra de segurança) ──
+    if (action === "getSettings") {
+      return ContentService
+        .createTextOutput(JSON.stringify({ success: true, settings: readSettings_(ss) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
 
-function readSettings_() {
-  var rows = getSettingsSheet_().getDataRange().getValues().slice(1);
-  var out = { pwdHash: '', wordHash: '' };
-  rows.forEach(function (r) {
-    if (r[0]) out[String(r[0])] = String(r[1] || '');
+    if (action === "saveSettings") {
+      const incoming = JSON.parse(e.postData.contents).settings || {};
+      writeSettings_(ss, incoming);
+      return ContentService
+        .createTextOutput(JSON.stringify({ success: true }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+```
+
+## Bloco 2 — no final do arquivo
+
+Fora de qualquer função, depois do último `}` do arquivo:
+
+```javascript
+function readSettings_(ss) {
+  const out = { pwdHash: "", wordHash: "" };
+  const sh = ss.getSheetByName("Settings");
+  if (!sh) return out;
+  sh.getDataRange().getValues().slice(1).forEach(function (r) {
+    if (r[0]) out[String(r[0])] = String(r[1] || "");
   });
   return out;
 }
 
-function writeSettings_(settings) {
-  var sh = getSettingsSheet_();
-  var current = readSettings_();
-  var next = {
-    pwdHash: settings && settings.pwdHash ? String(settings.pwdHash) : current.pwdHash,
-    wordHash: settings && settings.wordHash ? String(settings.wordHash) : current.wordHash
+function writeSettings_(ss, settings) {
+  const current = readSettings_(ss);
+  const next = {
+    pwdHash: settings.pwdHash ? String(settings.pwdHash) : current.pwdHash,
+    wordHash: settings.wordHash ? String(settings.wordHash) : current.wordHash
   };
+  let sh = ss.getSheetByName("Settings");
+  if (!sh) sh = ss.insertSheet("Settings");
   sh.clear();
-  sh.appendRow(['key', 'value']);
-  sh.appendRow(['pwdHash', next.pwdHash]);
-  sh.appendRow(['wordHash', next.wordHash]);
-}
-
-function settingsJson_(obj) {
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+  sh.appendRow(["key", "value"]);
+  sh.appendRow(["pwdHash", next.pwdHash]);
+  sh.appendRow(["wordHash", next.wordHash]);
 }
 ```
-
-## 2. Dentro do `doGet` que já existe
-
-Logo no começo, antes dos outros `if`/`switch` de `action`:
-
-```javascript
-  if (action === 'getSettings') {
-    return settingsJson_({ success: true, settings: readSettings_() });
-  }
-```
-
-Se o seu `doGet` lê o parâmetro com outro nome, use o mesmo nome que já está lá
-(normalmente `var action = e.parameter.action;`).
-
-## 3. Dentro do `doPost` que já existe
-
-Logo depois de fazer o parse do corpo da requisição:
-
-```javascript
-  if (body.action === 'saveSettings') {
-    writeSettings_(body.settings);
-    return settingsJson_({ success: true });
-  }
-```
-
-Use o mesmo nome de variável que o seu `doPost` já usa para o corpo — em geral
-`var body = JSON.parse(e.postData.contents);`.
 
 ## Observações
 
