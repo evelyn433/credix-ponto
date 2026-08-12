@@ -1692,11 +1692,22 @@ async function loadSettings() {
 }
 
 async function saveSettingsPatch(patch) {
+  // Re-check the backend before every save: the page may have been opened
+  // before the Apps Script was deployed, or another admin may have changed
+  // a secret in the meantime.
+  await loadSettings();
   const prev = SETTINGS;
   SETTINGS = Object.assign({}, SETTINGS, patch);
   if (settingsRemote) {
-    try { await apiPost('saveSettings', { settings: SETTINGS }); }
+    let res;
+    try { res = await apiPost('saveSettings', { settings: SETTINGS }); }
     catch(e) { SETTINGS = prev; throw e; }
+    // The backend answers {success:false,error} on a refused write — without
+    // this the app reported "updated on every device" for a failed save.
+    if (!res || res.success !== true) {
+      SETTINGS = prev;
+      throw new Error((res && res.error) || 'the spreadsheet refused the write');
+    }
     return true;
   }
   localStorage.setItem('credix_pwd_hash', SETTINGS.pwdHash);
@@ -1731,7 +1742,7 @@ async function changePassword() {
   if (!validateNewPassword(newPwd, confirmPwd)) return;
   let remote;
   try { remote = await saveSettingsPatch({ pwdHash: await hashSecret(newPwd) }); }
-  catch(e) { showToast('❌ Could not save the password — check your connection.', 'error'); return; }
+  catch(e) { showToast('❌ Could not save the password — ' + (e.message || 'check your connection.'), 'error'); return; }
   document.getElementById('new-password').value = '';
   document.getElementById('confirm-password').value = '';
   showToast(remote ? '✅ Password updated on every device!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
@@ -1742,7 +1753,7 @@ async function changeSecurityWord() {
   if (!word) { showToast('Please enter a security word.', 'error'); return; }
   let remote;
   try { remote = await saveSettingsPatch({ wordHash: await hashSecret(word.toLowerCase()) }); }
-  catch(e) { showToast('❌ Could not save the security word — check your connection.', 'error'); return; }
+  catch(e) { showToast('❌ Could not save the security word — ' + (e.message || 'check your connection.'), 'error'); return; }
   document.getElementById('new-security-word').value = '';
   showToast(remote ? '✅ Security word updated!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
@@ -1777,7 +1788,7 @@ async function resetPassword() {
   if (!validateNewPassword(newPwd, confirmPwd)) return;
   let remote;
   try { remote = await saveSettingsPatch({ pwdHash: await hashSecret(newPwd) }); }
-  catch(e) { showToast('❌ Could not reset the password — check your connection.', 'error'); return; }
+  catch(e) { showToast('❌ Could not reset the password — ' + (e.message || 'check your connection.'), 'error'); return; }
   closeModal('forgot-modal');
   showToast(remote ? '✅ Password reset successfully!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
