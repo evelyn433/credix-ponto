@@ -16,6 +16,14 @@ const SHEET_NAME = "Records";
 const RECORD_COLUMNS = ["id", "user", "name", "type", "date", "time", "notes", "timestamp"];
 const USER_COLUMNS = ["key", "name", "admin", "pwdHash", "wordHash"];
 
+// Pedidos de correção de ponto. Ficam aqui e não em Records, para um pedido
+// pendente não entrar em nenhum cálculo de horas antes de ser aprovado. Ao
+// aprovar, é este backend que grava a batida em Records — e a linha do pedido
+// permanece como histórico de quem pediu, por quê, e quem aprovou.
+const REQUEST_COLUMNS = ["id", "user", "name", "action", "targetId", "type", "date",
+                         "time", "reason", "status", "createdAt", "reviewedBy", "reviewedAt"];
+const PUNCH_TYPES_BE = ["Clock In", "Lunch Out", "Lunch In", "Clock Out"];
+
 const DEFAULT_USERS = [
   { key: "evelyn", name: "Evelyn", admin: false, pwdHash: "", wordHash: "" },
   { key: "patrick", name: "Patrick", admin: false, pwdHash: "", wordHash: "" },
@@ -29,7 +37,8 @@ function doPost(e) { return handleRequest(e); }
 // Só as gravações precisam da fila. Antes tudo esperava, e uma leitura durante
 // uma gravação de outra pessoa ficava parada sem motivo.
 const WRITE_ACTIONS = ["addRecord", "updateRecord", "deleteRecord", "saveUsers",
-                       "setPassword", "setSecurityWord", "resetPassword"];
+                       "setPassword", "setSecurityWord", "resetPassword",
+                       "createRequest", "reviewRequest"];
 
 function handleRequest(e) {
   const params = (e && e.parameter) || {};
@@ -87,6 +96,100 @@ function handleRequest(e) {
       return json_({ success: true });
     }
 
+    // ── PEDIDOS DE CORREÇÃO ────────────────────────────────
+    if (action === "getRequests") {
+      const me = authUser_(readUsers_(ss), body);
+      if (!me) return json_({ success: false, authRequired: true, error: "Sign in required." });
+      const all = readRequests_(ss);
+      // cada um vê os seus; o admin vê todos, porque é quem aprova
+      return json_({ success: true, requests: me.admin ? all : all.filter(r => r.user === me.key) });
+    }
+
+    if (action === "createRequest") {
+      const me = authUser_(readUsers_(ss), body);
+      if (!me) return json_({ success: false, authRequired: true, error: "Sign in required." });
+
+      const req = body.request || {};
+      // ninguém pede correção no nome de outra pessoa
+      if (String(req.user || "") !== me.key) {
+        return json_({ success: false, error: "You can only request corrections for yourself." });
+      }
+      if (PUNCH_TYPES_BE.indexOf(String(req.type)) === -1) {
+        return json_({ success: false, error: "Invalid punch type." });
+      }
+      if (!req.id || !req.date || !req.time) {
+        return json_({ success: false, error: "Date and time are required." });
+      }
+      if (!String(req.reason || "").trim()) {
+        return json_({ success: false, error: "A reason is required." });
+      }
+
+      const targetId = String(req.targetId || "");
+      if (targetId) {
+        // só faz sentido alterar uma batida que existe e é da própria pessoa
+        const target = findRecordById_(sheet, targetId);
+        if (!target) return json_({ success: false, error: "The punch to change no longer exists." });
+        if (String(target.user) !== me.key) {
+          return json_({ success: false, error: "That punch belongs to someone else." });
+        }
+      }
+
+      appendRequest_(ss, {
+        id: String(req.id), user: me.key, name: me.name,
+        action: targetId ? "edit" : "add", targetId: targetId,
+        type: String(req.type), date: String(req.date), time: String(req.time),
+        reason: String(req.reason).trim(), status: "pending",
+        createdAt: String(req.createdAt || ""), reviewedBy: "", reviewedAt: ""
+      });
+      return json_({ success: true });
+    }
+
+    if (action === "reviewRequest") {
+      const users = readUsers_(ss);
+      if (!isAdminProof_(users, body)) {
+        return json_({ success: false, error: "Admin password required." });
+      }
+      const decision = String(body.decision || "");
+      if (decision !== "approve" && decision !== "reject") {
+        return json_({ success: false, error: "Decision must be approve or reject." });
+      }
+
+      const requests = readRequests_(ss);
+      const req = pickRequest_(requests, body.id);
+      if (!req) return json_({ success: false, error: "Request not found." });
+      if (req.status !== "pending") {
+        return json_({ success: false, error: "This request was already " + req.status + "." });
+      }
+
+      if (decision === "approve") {
+        if (req.action === "edit") {
+          const rowIndex = findRowById_(sheet, req.targetId);
+          if (rowIndex === -1) {
+            return json_({ success: false, error: "The punch to change no longer exists." });
+          }
+          const current = findRecordById_(sheet, req.targetId);
+          sheet.getRange(rowIndex, 1, 1, RECORD_COLUMNS.length).setValues([recordToRow_({
+            id: current.id, user: current.user, name: current.name,
+            type: req.type, date: req.date, time: req.time,
+            notes: current.notes, timestamp: current.timestamp
+          })]);
+        } else {
+          sheet.appendRow(recordToRow_({
+            id: req.id, user: req.user, name: req.name,
+            type: req.type, date: req.date, time: req.time,
+            notes: "Correction — " + req.reason,
+            timestamp: String(body.reviewedAt || req.createdAt || "")
+          }));
+        }
+      }
+
+      req.status = decision === "approve" ? "approved" : "rejected";
+      req.reviewedBy = String(body.adminKey || "");
+      req.reviewedAt = String(body.reviewedAt || "");
+      writeRequests_(ss, requests);
+      return json_({ success: true });
+    }
+
     // ── COLABORADORES ──────────────────────────────────────
     // Devolve só o que a tela precisa. Os hashes não saem daqui.
     if (action === "getUsers") {
@@ -139,10 +242,12 @@ function handleRequest(e) {
       }
       // Os registros vão junto: a sessão acabou de ser autenticada, então isso
       // poupa uma ida ao servidor logo depois — e cada ida custa ~1-2 segundos.
+      const requests = readRequests_(ss);
       return json_({
         success: true,
         user: { key: user.key, name: user.name, admin: user.admin, hasWord: !!user.wordHash },
-        records: readRecords_(sheet)
+        records: readRecords_(sheet),
+        requests: user.admin ? requests : requests.filter(r => r.user === user.key)
       });
     }
 
@@ -253,6 +358,73 @@ function json_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── PEDIDOS ────────────────────────────────────────────────
+function getRequestSheet_(ss) {
+  let sh = ss.getSheetByName("Requests");
+  if (!sh) {
+    sh = ss.insertSheet("Requests");
+    sh.appendRow(REQUEST_COLUMNS);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function readRequests_(ss) {
+  const sh = getRequestSheet_(ss);
+  const rows = sh.getDataRange().getValues();
+  const header = rows.length ? rows[0].map(h => String(h).trim()) : [];
+  return rows.slice(1)
+    .filter(function (row) { return String(row[0]).trim() !== ""; })
+    .map(function (row) {
+      const obj = {};
+      REQUEST_COLUMNS.forEach(function (name) {
+        const i = header.indexOf(name);
+        obj[name] = i > -1 && i < row.length ? String(row[i] || "").trim() : "";
+      });
+      return obj;
+    });
+}
+
+function requestToRow_(req) {
+  return REQUEST_COLUMNS.map(function (name) { return asText_(req[name] || ""); });
+}
+
+function appendRequest_(ss, req) {
+  getRequestSheet_(ss).appendRow(requestToRow_(req));
+}
+
+function writeRequests_(ss, requests) {
+  const sh = getRequestSheet_(ss);
+  sh.clear();
+  sh.appendRow(REQUEST_COLUMNS);
+  requests.forEach(function (r) { sh.appendRow(requestToRow_(r)); });
+  sh.setFrozenRows(1);
+}
+
+function pickRequest_(requests, id) {
+  const wanted = String(id || "").trim();
+  if (!wanted) return null;
+  for (let i = 0; i < requests.length; i++) {
+    if (requests[i].id === wanted) return requests[i];
+  }
+  return null;
+}
+
+function findRecordById_(sheet, id) {
+  const wanted = String(id || "").trim();
+  if (!wanted) return null;
+  const data = sheet.getDataRange().getValues();
+  const header = data[0];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === wanted) {
+      const obj = {};
+      header.forEach(function (h, j) { obj[String(h).trim()] = data[i][j]; });
+      return obj;
+    }
+  }
+  return null;
 }
 
 function readRecords_(sheet) {

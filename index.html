@@ -317,6 +317,54 @@ body {
 }
 .btn-occurrence:hover { background: rgba(245,200,66,0.18); }
 
+/* ── CORRECTIONS ── */
+.btn-correction {
+  width: 100%;
+  padding: 13px;
+  background: var(--blue-dim);
+  border: 1px solid rgba(77,159,255,0.25);
+  border-radius: 10px;
+  color: var(--blue);
+  font-family: var(--font);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-correction:hover { background: rgba(77,159,255,0.18); }
+
+.corr-preview {
+  font-size: 12px; line-height: 1.6; color: var(--text2);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 11px 13px; margin-bottom: 4px;
+  min-height: 20px;
+}
+.corr-preview b { color: var(--text); font-weight: 600; }
+
+.corr-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.corr-row:last-child { border-bottom: none; }
+.corr-what { color: var(--text2); }
+.corr-what b { color: var(--text); font-weight: 600; }
+
+.status-pill { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+.status-pill.pending  { color: var(--gold); background: var(--gold-dim); border: 1px solid rgba(245,200,66,0.25); }
+.status-pill.approved { color: var(--green); background: var(--green-dim); border: 1px solid rgba(0,201,110,0.25); }
+.status-pill.rejected { color: var(--red); background: var(--red-dim); border: 1px solid rgba(255,77,106,0.25); }
+
+.approval-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.approval-row:last-child { border-bottom: none; }
+.approval-info { font-size: 13px; line-height: 1.7; flex: 1; min-width: 220px; }
+.approval-info b { font-weight: 600; }
+.approval-reason { font-size: 12px; color: var(--text2); font-style: italic; }
+.approval-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.count-badge { font-size: 10px; font-weight: 700; color: #080a0d; background: var(--gold); padding: 2px 7px; border-radius: 20px; margin-left: 6px; }
+
 /* ── TABLE ── */
 .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -667,6 +715,17 @@ tr:hover td { background: var(--surface2); }
             <div id="today-log"><div class="empty-log">No records yet today.</div></div>
           </div>
           <div class="card">
+            <div class="card-title">Punch Corrections</div>
+            <div style="margin-bottom:12px; font-size:12px; color:var(--text2); line-height:1.6;">
+              Forgot a punch, or clocked the wrong time? Send a correction — it applies once the admin approves.
+            </div>
+            <button class="btn-correction" onclick="openCorrectionModal()">
+              ✎ Request Correction
+            </button>
+            <div id="my-corrections" style="margin-top:14px"></div>
+          </div>
+
+          <div class="card">
             <div class="card-title">Register Occurrence</div>
             <div style="margin-bottom:12px; font-size:12px; color:var(--text2); line-height:1.6;">
               Register absences, holidays or time off for any date — past or future.
@@ -813,6 +872,11 @@ tr:hover td { background: var(--surface2); }
           </div>
           <button class="btn btn-outline" onclick="refreshAdmin()" style="white-space:nowrap;margin-top:4px;">↻ Refresh</button>
         </div>
+        <div class="card" id="approvals-card" style="margin-bottom:20px;display:none">
+          <div class="card-title" id="approvals-title">Pending Corrections</div>
+          <div id="approvals-body"></div>
+        </div>
+
         <div class="filters">
           <div class="filter-item">
             <select id="admin-user" onchange="renderAdmin()">
@@ -907,6 +971,40 @@ tr:hover td { background: var(--surface2); }
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('occurrence-modal')">Cancel</button>
       <button class="btn btn-green" onclick="saveOccurrence()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CORRECTION REQUEST MODAL ══════════════════════════ -->
+<div class="modal-overlay" id="correction-modal">
+  <div class="modal">
+    <div class="modal-title">Request a Correction</div>
+    <div class="modal-sub">Forgot a punch or got the time wrong? Ask the admin to fix it.</div>
+    <div class="modal-field">
+      <label>Date</label>
+      <input type="date" id="corr-date" onchange="previewCorrection()">
+    </div>
+    <div class="modal-field">
+      <label>Punch</label>
+      <select id="corr-type" onchange="previewCorrection()">
+        <option value="Clock In">▶ Clock In</option>
+        <option value="Lunch Out">🍽 Lunch Out</option>
+        <option value="Lunch In">↩ Lunch In</option>
+        <option value="Clock Out">■ Clock Out</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Correct Time</label>
+      <input type="time" id="corr-time" step="60">
+    </div>
+    <div class="modal-field">
+      <label>Reason</label>
+      <input type="text" id="corr-reason" placeholder="e.g. forgot to clock in on arrival">
+    </div>
+    <div id="corr-preview" class="corr-preview"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('correction-modal')">Cancel</button>
+      <button class="btn btn-green" id="corr-submit" onclick="submitCorrection()">Send for approval</button>
     </div>
   </div>
 </div>
@@ -1278,10 +1376,11 @@ async function refreshAdmin() {
   // force both, in parallel — the button exists precisely to bypass the cache
   usersLoadedAt = 0;
   recordsLoadedAt = 0;
-  const [ok] = await Promise.all([loadRecords(), loadUsers()]);
+  const [ok] = await Promise.all([loadRecords(), loadUsers(), loadRequests(true)]);
   refreshDropdowns();
   renderAdmin();
   renderCollaborators();
+  renderApprovals();
   if (ok) showToast('✅ Updated!', 'success');
 }
 
@@ -1342,6 +1441,7 @@ updateClock();
 function doLogout() {
   currentUser = null;
   sessionPwdHash = '';
+  ALL_REQUESTS = [];
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-user').value = '';
@@ -1411,8 +1511,10 @@ async function initApp() {
     resetDashboardVisibility();
     updateStatus();
     renderToday();
+    renderMyCorrections();
   }
   renderAccount();
+  renderApprovals();
   showPage(u.admin ? 'admin' : 'dashboard');
 
   // Now it is safe to show
@@ -1426,6 +1528,12 @@ async function initApp() {
     await loadRecords();
     if (!u.admin) { updateStatus(); renderToday(); }
     showPage(u.admin ? 'admin' : 'dashboard');
+  }
+  // an old backend has no requests in the login response
+  if (!ALL_REQUESTS.length) {
+    await loadRequests(true);
+    if (!u.admin) renderMyCorrections();
+    renderApprovals();
   }
 }
 
@@ -1442,7 +1550,7 @@ function showPage(page) {
 
   if (page === 'account') { renderAccount(); }
   if (page === 'report') { withRecords(renderReport); }
-  if (page === 'admin') { withUsers(renderCollaborators); withRecords(renderAdmin); }
+  if (page === 'admin') { withUsers(renderCollaborators); withRecords(renderAdmin); renderApprovals(); }
 }
 
 // ═══════════════════════════════════════════════════
@@ -1725,6 +1833,201 @@ async function saveOccurrence() {
 // ═══════════════════════════════════════════════════
 // HISTORY
 // ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
+// PUNCH CORRECTIONS
+// ═══════════════════════════════════════════════════
+// A collaborator cannot edit their own punches — that would make the timesheet
+// worthless as a record. Instead they file a request, which sits in its own
+// sheet and touches no calculation, and the admin approves or rejects it. Only
+// on approval does the backend write the punch.
+let ALL_REQUESTS = [];
+let requestsAvailable = true;   // false when the Apps Script predates this
+
+function adoptRequests(list) {
+  ALL_REQUESTS = (list || []).map(function(r) {
+    return {
+      id: String(r.id || ''), user: String(r.user || ''), name: String(r.name || ''),
+      action: String(r.action || 'add'), targetId: String(r.targetId || ''),
+      type: String(r.type || ''), date: formatSheetDate(r.date), time: formatSheetTime(r.time),
+      reason: String(r.reason || ''), status: String(r.status || 'pending'),
+      reviewedBy: String(r.reviewedBy || '')
+    };
+  });
+}
+
+async function loadRequests(quiet) {
+  if (!currentUser || !sessionPwdHash) return false;
+  try {
+    const res = await apiRead('getRequests', { user: currentUser, pwdHash: sessionPwdHash });
+    if (!res || !Array.isArray(res.requests)) throw new Error('Invalid response');
+    requestsAvailable = true;
+    adoptRequests(res.requests);
+    return true;
+  } catch(e) {
+    // An old backend does not know the action. Everything else keeps working,
+    // so say so once instead of breaking the screen.
+    if (/unknown action/i.test(e.message || '')) {
+      requestsAvailable = false;
+      console.warn('[credix-ponto] corrections need the updated Apps Script');
+      return false;
+    }
+    if (!quiet) showToast('⚠️ Could not load corrections — ' + (e.message || 'try again.'), 'error');
+    return false;
+  }
+}
+
+function myRequests() {
+  return ALL_REQUESTS.filter(r => r.user === currentUser);
+}
+
+function pendingRequests() {
+  return ALL_REQUESTS.filter(r => r.status === 'pending');
+}
+
+function inputDateToBr(value) {
+  const p = String(value || '').split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : '';
+}
+
+function myPunchOn(brDate, type) {
+  return getRecords().find(r => r.user === currentUser && r.date === brDate && r.type === type);
+}
+
+function openCorrectionModal() {
+  if (!requestsAvailable) {
+    showToast('⚠️ Corrections need the updated Apps Script — ask the admin.', 'error');
+    return;
+  }
+  document.getElementById('corr-date').value = localDateInput();
+  document.getElementById('corr-type').value = 'Clock In';
+  document.getElementById('corr-time').value = '';
+  document.getElementById('corr-reason').value = '';
+  previewCorrection();
+  openModal('correction-modal');
+}
+
+// Tells the person exactly what they are asking for, so an edit is never
+// mistaken for an addition.
+function previewCorrection() {
+  const el = document.getElementById('corr-preview');
+  const brDate = inputDateToBr(document.getElementById('corr-date').value);
+  const type = document.getElementById('corr-type').value;
+  if (!brDate) { el.innerHTML = 'Pick a date.'; return; }
+  const existing = myPunchOn(brDate, type);
+  el.innerHTML = existing
+    ? 'This will <b>change</b> your ' + escapeHtml(type) + ' on ' + brDate
+      + ' from <b>' + formatTime(existing.time) + '</b> to the time above.'
+    : 'This will <b>add</b> a ' + escapeHtml(type) + ' on ' + brDate + ' — you have none recorded.';
+}
+
+async function submitCorrection() {
+  const dateRaw = document.getElementById('corr-date').value;
+  const type = document.getElementById('corr-type').value;
+  const time = document.getElementById('corr-time').value;
+  const reason = document.getElementById('corr-reason').value.trim();
+
+  if (!dateRaw) { showToast('Please pick a date.', 'error'); return; }
+  if (!time) { showToast('Please enter the correct time.', 'error'); return; }
+  if (!reason) { showToast('Please say why — the admin needs the context.', 'error'); return; }
+
+  const brDate = inputDateToBr(dateRaw);
+  const existing = myPunchOn(brDate, type);
+  const btn = document.getElementById('corr-submit');
+  btn.disabled = true;
+  try {
+    await apiPost('createRequest', { user: currentUser, pwdHash: sessionPwdHash, request: {
+      id: genId(), user: currentUser, targetId: existing ? existing.id : '',
+      type: type, date: brDate, time: normalizeTime(time), reason: reason,
+      createdAt: new Date().toISOString()
+    }});
+  } catch(e) {
+    btn.disabled = false;
+    showToast('❌ Could not send — ' + (e.message || 'check your connection.'), 'error');
+    return;
+  }
+  btn.disabled = false;
+  closeModal('correction-modal');
+  await loadRequests(true);
+  renderMyCorrections();
+  showToast('✅ Sent for approval.', 'success');
+}
+
+function correctionLine(r) {
+  const what = r.action === 'edit' ? 'change' : 'add';
+  return '<b>' + escapeHtml(r.type) + '</b> ' + what + ' on ' + r.date + ' → <b>' + formatTime(r.time) + '</b>';
+}
+
+function renderMyCorrections() {
+  const el = document.getElementById('my-corrections');
+  if (!el) return;
+  if (!requestsAvailable) {
+    el.innerHTML = '<div class="empty-log">Corrections need the updated Apps Script.</div>';
+    return;
+  }
+  const mine = myRequests().slice(0, 6);
+  if (!mine.length) { el.innerHTML = '<div class="empty-log">No corrections requested.</div>'; return; }
+  el.innerHTML = mine.map(function(r) {
+    return '<div class="corr-row"><div class="corr-what">' + correctionLine(r) + '</div>'
+      + '<span class="status-pill ' + r.status + '">' + r.status + '</span></div>';
+  }).join('');
+}
+
+function renderApprovals() {
+  const card = document.getElementById('approvals-card');
+  const body = document.getElementById('approvals-body');
+  const title = document.getElementById('approvals-title');
+  if (!card || !isAdmin(currentUser)) return;
+
+  const pending = pendingRequests();
+  card.style.display = (requestsAvailable && pending.length) ? '' : 'none';
+  if (!pending.length) return;
+
+  title.innerHTML = 'Pending Corrections<span class="count-badge">' + pending.length + '</span>';
+  body.innerHTML = pending.map(function(r) {
+    const current = r.action === 'edit'
+      ? (getRecords().find(x => x.id === r.targetId) || null)
+      : null;
+    const from = current ? ' (now <b>' + formatTime(current.time) + '</b>)' : '';
+    return '<div class="approval-row">'
+      + '<div class="approval-info"><b>' + escapeHtml(r.name) + '</b> — ' + correctionLine(r) + from
+      + '<br><span class="approval-reason">“' + escapeHtml(r.reason) + '”</span></div>'
+      + '<div class="approval-actions">'
+      + '<button class="btn btn-green btn-sm approve-btn" data-id="' + escapeHtml(r.id) + '">✓ Approve</button>'
+      + '<button class="btn btn-danger btn-sm reject-btn" data-id="' + escapeHtml(r.id) + '">✕ Reject</button>'
+      + '</div></div>';
+  }).join('');
+
+  body.querySelectorAll('.approve-btn').forEach(function(b) {
+    b.addEventListener('click', function() { reviewCorrection(this.getAttribute('data-id'), 'approve'); });
+  });
+  body.querySelectorAll('.reject-btn').forEach(function(b) {
+    b.addEventListener('click', function() { reviewCorrection(this.getAttribute('data-id'), 'reject'); });
+  });
+}
+
+async function reviewCorrection(id, decision) {
+  const req = ALL_REQUESTS.find(r => r.id === id);
+  if (!req) return;
+  if (decision === 'reject' && !confirm('Reject ' + req.name + '\u2019s correction?')) return;
+
+  try {
+    await apiPost('reviewRequest', {
+      id: id, decision: decision,
+      adminKey: currentUser, adminPwdHash: sessionPwdHash,
+      reviewedAt: new Date().toISOString()
+    });
+  } catch(e) {
+    showToast('❌ Could not save the decision — ' + (e.message || 'try again.'), 'error');
+    return;
+  }
+  // an approval wrote a punch, so the records changed too
+  recordsLoadedAt = 0;
+  await Promise.all([loadRecords(true), loadRequests(true)]);
+  renderApprovals();
+  renderAdmin();
+  showToast(decision === 'approve' ? '✅ Approved and applied.' : '✕ Rejected.', 'success');
+}
+
 // ═══════════════════════════════════════════════════
 // TIME BALANCE (banco de horas)
 // ═══════════════════════════════════════════════════
@@ -2255,8 +2558,9 @@ async function doLogin() {
   if (!res || !res.user) { setLoginBusy(false); err.textContent = 'Could not sign in — please try again.'; return; }
 
   sessionPwdHash = pwdHash;
-  // login already returned the records, so the app opens filled
+  // login already returned the records and the corrections, so the app opens filled
   if (Array.isArray(res.records)) adoptRecords(res.records);
+  if (Array.isArray(res.requests)) { requestsAvailable = true; adoptRequests(res.requests); }
   setLoginBusy(false);
   enterApp(key);
 }

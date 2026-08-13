@@ -9,6 +9,7 @@ que conversa com ela é um Apps Script publicado como Web App.
 |---|---|
 | `Records` | um registro por linha — batida de ponto ou ocorrência |
 | `Users` | colaboradores, quem é admin, e o hash da senha e da palavra de segurança de cada um |
+| `Requests` | pedidos de correção de ponto, com quem pediu, o motivo e quem aprovou |
 | `Settings` | legado, esvaziada na migração — antes guardava a senha única do admin |
 
 As abas são criadas automaticamente na primeira vez que forem necessárias.
@@ -70,6 +71,9 @@ acesso.
 | `setPassword` | POST | grava uma senha nova, exigindo prova |
 | `setSecurityWord` | POST | grava a palavra de segurança, exigindo a senha atual |
 | `resetPassword` | POST | admin zera a senha de alguém |
+| `getRequests` | POST | pedidos de correção — os seus, ou todos se for admin |
+| `createRequest` | POST | abre um pedido, só para si mesmo e com motivo obrigatório |
+| `reviewRequest` | POST | admin aprova ou rejeita; aprovar é o que grava a batida |
 
 `getSettings` e `saveSettings` foram removidas de propósito: eram a senha única
 do admin, e uma aba com o código antigo em cache leria "nenhuma senha" e
@@ -87,6 +91,30 @@ nomes antes de alguém entrar. Isso expõe os nomes do time e quem já criou sen
 
 Consequência prática: não dá mais para conferir os registros colando a URL no
 navegador. Para diagnóstico, `?action=getUsers` continua funcionando.
+
+## Correções de ponto
+
+Um colaborador não edita as próprias batidas — isso tornaria o registro sem
+valor como comprovação. Ele abre um **pedido**, que fica na aba `Requests` e não
+entra em nenhum cálculo de horas. Só quando o admin aprova é que este backend
+grava a batida em `Records`.
+
+Dois tipos de pedido, decididos automaticamente pela tela:
+
+- **adicionar** — não existe batida daquele tipo naquele dia (esqueceu de bater)
+- **alterar** — já existe, e o pedido carrega o `targetId` dela
+
+Regras conferidas no servidor:
+
+- só o próprio dono pede correção, e só sobre batidas dele
+- o motivo é obrigatório
+- aprovar e rejeitar exigem senha de admin — ninguém aprova o próprio pedido
+- um pedido já decidido não pode ser decidido de novo
+- se a batida a alterar foi apagada no meio do caminho, a aprovação falha e o
+  pedido continua pendente, em vez de gravar algo errado
+
+A linha do pedido nunca é apagada: ela é o histórico de quem pediu, por quê, e
+quem aprovou.
 
 ## Cuidados que o backend toma
 
