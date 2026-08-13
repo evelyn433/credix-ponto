@@ -1087,6 +1087,7 @@ async function apiRead(action, data) {
   const target = data ? API_URL : API_URL + '?action=' + encodeURIComponent(action);
   const init = data ? { method: 'POST', body: JSON.stringify(Object.assign({ action }, data)) } : undefined;
 
+  const started = Date.now();
   let lastError;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt) await wait(RETRY_DELAYS_MS[attempt - 1]);
@@ -1094,6 +1095,8 @@ async function apiRead(action, data) {
       const res = await fetch(target, init);
       if (res.ok) {
         const json = await res.json();
+        // every call is a second or two of Apps Script, so make it measurable
+        console.info('[credix-ponto] ' + action + ' ' + (Date.now() - started) + 'ms');
         // A refusal from the backend is an answer, not a transport glitch —
         // retrying a wrong password or a denied read would only waste time.
         if (json && json.success === false) {
@@ -1118,10 +1121,12 @@ async function apiRead(action, data) {
 function apiGet(action) { return apiRead(action); }
 
 async function apiPost(action, data) {
+  const started = Date.now();
   const res = await fetch(API_URL, {
     method: 'POST',
     body: JSON.stringify({ action, ...data })
   });
+  console.info('[credix-ponto] ' + action + ' ' + (Date.now() - started) + 'ms');
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const json = await res.json();
   if (json && json.success === false) throw new Error(json.error || 'Request failed');
@@ -1154,17 +1159,27 @@ const USERS_CACHE_KEY = 'credix_users_v1';
 let usersLoadedAt = 0;
 const USERS_FRESH_MS = 30000;
 
+const USERS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 function cacheUsers() {
-  try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(USERS)); } catch(e) {}
+  try {
+    localStorage.setItem(USERS_CACHE_KEY, JSON.stringify({ at: Date.now(), users: USERS }));
+  } catch(e) {}
 }
 
+// Returns 'fresh' when the cached roster is recent enough to skip the fetch,
+// 'stale' when it painted the screen but should be refreshed, or '' on a miss.
 function loadCachedUsers() {
   try {
     const parsed = JSON.parse(localStorage.getItem(USERS_CACHE_KEY) || 'null');
-    if (!parsed || !Object.keys(parsed).length) return false;
-    USERS = parsed;
-    return true;
-  } catch(e) { return false; }
+    if (!parsed) return '';
+    // tolerate the older shape, which had no timestamp
+    const users = parsed.users || parsed;
+    const at = Number(parsed.at || 0);
+    if (!users || !Object.keys(users).length) return '';
+    USERS = users;
+    return (Date.now() - at < USERS_CACHE_TTL_MS) ? 'fresh' : 'stale';
+  } catch(e) { return ''; }
 }
 
 async function loadUsers() {
@@ -1442,6 +1457,7 @@ function doLogout() {
   currentUser = null;
   sessionPwdHash = '';
   ALL_REQUESTS = [];
+  requestsFetched = false;
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-user').value = '';
@@ -1529,8 +1545,8 @@ async function initApp() {
     if (!u.admin) { updateStatus(); renderToday(); }
     showPage(u.admin ? 'admin' : 'dashboard');
   }
-  // an old backend has no requests in the login response
-  if (!ALL_REQUESTS.length) {
+  // only when the login response did not carry them (an older backend)
+  if (!requestsFetched) {
     await loadRequests(true);
     if (!u.admin) renderMyCorrections();
     renderApprovals();
@@ -1842,6 +1858,10 @@ async function saveOccurrence() {
 // on approval does the backend write the punch.
 let ALL_REQUESTS = [];
 let requestsAvailable = true;   // false when the Apps Script predates this
+// An empty list and a list never fetched both leave ALL_REQUESTS empty, so the
+// length cannot tell them apart. Without this the app fetched the corrections
+// again after every single login — a wasted round trip on the common path.
+let requestsFetched = false;
 
 function adoptRequests(list) {
   ALL_REQUESTS = (list || []).map(function(r) {
@@ -1861,6 +1881,7 @@ async function loadRequests(quiet) {
     const res = await apiRead('getRequests', { user: currentUser, pwdHash: sessionPwdHash });
     if (!res || !Array.isArray(res.requests)) throw new Error('Invalid response');
     requestsAvailable = true;
+    requestsFetched = true;
     adoptRequests(res.requests);
     return true;
   } catch(e) {
@@ -2574,7 +2595,11 @@ async function doLogin() {
   sessionPwdHash = pwdHash;
   // login already returned the records and the corrections, so the app opens filled
   if (Array.isArray(res.records)) adoptRecords(res.records);
-  if (Array.isArray(res.requests)) { requestsAvailable = true; adoptRequests(res.requests); }
+  if (Array.isArray(res.requests)) {
+    requestsAvailable = true;
+    requestsFetched = true;
+    adoptRequests(res.requests);
+  }
   setLoginBusy(false);
   enterApp(key);
 }
@@ -2590,6 +2615,9 @@ function setLoginBusy(busy, label) {
 }
 
 function enterApp(key) {
+  // not awaited: keeps the roster current for the next sign in without making
+  // this one wait
+  if (Date.now() - usersLoadedAt > USERS_FRESH_MS) loadUsers();
   document.getElementById('login-password').value = '';
   document.getElementById('create-pwd').value = '';
   document.getElementById('create-pwd-confirm').value = '';
@@ -2718,10 +2746,17 @@ async function adminResetPassword(key) {
 // then refresh it behind the scenes. The records cannot be prefetched — reading
 // them needs a password — but they come back with the login response.
 (function bootstrap() {
-  if (loadCachedUsers()) {
+  const cached = loadCachedUsers();
+  if (cached) {
     refreshDropdowns();
     togglePasswordField();
   }
+  // A fetch here would be competing with the login POST for the same Apps
+  // Script instance, which is the slowest moment to spend a call. With a recent
+  // roster in hand, skip it — the refresh happens right after signing in, when
+  // nothing is waiting on it.
+  if (cached === 'fresh') return;
+
   loadUsers().then(function() {
     const selected = document.getElementById('login-user').value;
     refreshDropdowns();
