@@ -26,19 +26,30 @@ const DEFAULT_USERS = [
 function doGet(e) { return handleRequest(e); }
 function doPost(e) { return handleRequest(e); }
 
+// Só as gravações precisam da fila. Antes tudo esperava, e uma leitura durante
+// uma gravação de outra pessoa ficava parada sem motivo.
+const WRITE_ACTIONS = ["addRecord", "updateRecord", "deleteRecord", "saveUsers",
+                       "setPassword", "setSecurityWord", "resetPassword"];
+
 function handleRequest(e) {
-  // impede que duas pessoas gravando ao mesmo tempo embaralhem as linhas
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) {
-    return json_({ success: false, error: "Planilha ocupada, tente novamente." });
+  const params = (e && e.parameter) || {};
+  let body;
+  try {
+    body = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
+  } catch (err) {
+    return json_({ success: false, error: "Malformed request body" });
+  }
+  const action = params.action || body.action || null;
+
+  let lock = null;
+  if (WRITE_ACTIONS.indexOf(action) > -1) {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(20000)) {
+      return json_({ success: false, error: "Planilha ocupada, tente novamente." });
+    }
   }
 
   try {
-    const params = (e && e.parameter) || {};
-    const body = (e && e.postData && e.postData.contents)
-      ? JSON.parse(e.postData.contents)
-      : {};
-    const action = params.action || body.action || null;
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = getRecordSheet_(ss);
@@ -190,7 +201,7 @@ function handleRequest(e) {
   } catch (err) {
     return json_({ success: false, error: err.toString() });
   } finally {
-    lock.releaseLock();
+    if (lock) lock.releaseLock();
   }
 }
 

@@ -953,10 +953,34 @@ const API_URL = "https://script.google.com/macros/s/AKfycbybem_4w5ogS6qglVgaqKCm
 // ═══════════════════════════════════════════════════
 // API
 // ═══════════════════════════════════════════════════
+// The Apps Script endpoint hiccups now and then — a 404 or 5xx for one request
+// while the next one succeeds, especially in the minutes after a redeploy.
+// Reads are safe to repeat, so they retry instead of failing the whole screen.
+// Writes are NOT retried here: repeating addRecord would punch twice.
+const RETRY_DELAYS_MS = [400, 1200];
+
+function isRetriable(status) {
+  return status === 404 || status === 429 || status >= 500;
+}
+
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
 async function apiGet(action) {
-  const res = await fetch(API_URL + '?action=' + encodeURIComponent(action));
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
+  let lastError;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt) await wait(RETRY_DELAYS_MS[attempt - 1]);
+    try {
+      const res = await fetch(API_URL + '?action=' + encodeURIComponent(action));
+      if (res.ok) return res.json();
+      lastError = new Error('HTTP ' + res.status);
+      if (!isRetriable(res.status)) break;
+      console.warn('[credix-ponto] ' + action + ' HTTP ' + res.status + ' — retrying');
+    } catch(e) {
+      lastError = e;  // network failure, also worth a retry
+      console.warn('[credix-ponto] ' + action + ' failed — retrying', e);
+    }
+  }
+  throw lastError;
 }
 
 async function apiPost(action, data) {
@@ -1011,7 +1035,32 @@ async function loadUsers() {
   USERS = Object.assign({}, DEFAULT_USERS);
 }
 
-async function loadRecords() {
+// Every call to the Apps Script costs a second or two, so records are fetched
+// once and reused: concurrent callers share one request, and a page switch
+// paints from what is already loaded while a refresh runs behind it.
+let recordsPromise = null;
+let recordsLoadedAt = 0;
+const RECORDS_FRESH_MS = 30000;
+
+function loadRecords(quiet) {
+  if (recordsPromise) return recordsPromise;
+  recordsPromise = fetchRecords(quiet).then(function(ok) {
+    recordsPromise = null;
+    if (ok) recordsLoadedAt = Date.now();
+    return ok;
+  });
+  return recordsPromise;
+}
+
+// Paints immediately when there is something to paint, then quietly refreshes.
+function withRecords(render) {
+  if (!ALL_RECORDS.length) { loadRecords().then(render); return; }
+  render();
+  if (Date.now() - recordsLoadedAt < RECORDS_FRESH_MS) return;
+  loadRecords(true).then(render);
+}
+
+async function fetchRecords(quiet) {
   try {
     const res = await apiGet('getRecords');
     if (!res || !res.success || !Array.isArray(res.records)) throw new Error('Invalid response');
@@ -1032,7 +1081,10 @@ async function loadRecords() {
     // Carry the reason: a CORS/redirect failure and a backend error look the
     // same to the user otherwise.
     console.error('[credix-ponto] getRecords failed:', e);
-    showToast('⚠️ Could not reach the spreadsheet (' + (e.message || 'unknown error') + ') — showing the last loaded data.', 'error');
+    // the prefetch during login must not pop an error over the login screen
+    if (!quiet) {
+      showToast('⚠️ Could not reach the spreadsheet (' + (e.message || 'unknown error') + ') — showing the last loaded data.', 'error');
+    }
     return false;
   }
 }
@@ -1256,8 +1308,8 @@ async function initApp() {
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
   else { repUser.value = ''; repUser.disabled = false; }
 
-  // Load all records from backend
-  showToast('Loading...', 'success');
+  // Usually already fetched by the bootstrap prefetch, so this resolves at once
+  if (!ALL_RECORDS.length) showToast('Loading...', 'success');
   await loadRecords();
 
   if (u.admin) {
@@ -1288,9 +1340,9 @@ function showPage(page) {
   if (navEl) navEl.classList.add('active');
 
   if (page === 'account') { renderAccount(); }
-  if (page === 'history') { loadRecords().then(() => renderHistory()); }
-  if (page === 'report') { loadRecords().then(() => renderReport()); }
-  if (page === 'admin') { loadRecords().then(() => { renderAdmin(); renderCollaborators(); }); }
+  if (page === 'history') { withRecords(renderHistory); }
+  if (page === 'report') { withRecords(renderReport); }
+  if (page === 'admin') { renderCollaborators(); withRecords(renderAdmin); }
 }
 
 // ═══════════════════════════════════════════════════
@@ -1866,14 +1918,18 @@ async function doLogin() {
   const err = document.getElementById('login-error');
   if (!key) { err.textContent = 'Please select your name.'; return; }
 
-  err.textContent = 'Loading...';
-  await loadUsers();
-  refreshDropdowns();
-  document.getElementById('login-user').value = key;
-
+  // No second getUsers here: the roster came in at page load, and the backend
+  // validates against the sheet anyway — it answers needsPassword if this
+  // cached view is stale. That removes a whole round trip from every login.
   if (!usersRemote) {
-    err.textContent = 'Could not reach the spreadsheet — check your connection and try again.';
-    return;
+    err.textContent = 'Loading...';
+    await loadUsers();
+    refreshDropdowns();
+    document.getElementById('login-user').value = key;
+    if (!usersRemote) {
+      err.textContent = 'Could not reach the spreadsheet — check your connection and try again.';
+      return;
+    }
   }
   if (!USERS[key]) { err.textContent = 'This collaborator no longer exists.'; togglePasswordField(); return; }
 
@@ -2046,11 +2102,14 @@ async function adminResetPassword(key) {
   showToast('🔓 Password cleared for ' + USERS[key].name + '.', 'success');
 }
 
-// Load users on page load so the login screen knows who needs a password
+// Load users on page load so the login screen knows who needs a password, then
+// start pulling the records in the background. They are usually there by the
+// time someone finishes typing their password, so the app opens already filled.
 (async function bootstrap() {
   await loadUsers();
   refreshDropdowns();
   togglePasswordField();
+  loadRecords(true);
 })();
 
 
