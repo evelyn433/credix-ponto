@@ -1978,9 +1978,23 @@ function renderApprovals() {
   const title = document.getElementById('approvals-title');
   if (!card || !isAdmin(currentUser)) return;
 
+  // Always visible for the admin, and it says which of the three states it is
+  // in. Hiding the card when the queue was empty made "nothing to approve"
+  // look exactly like "this feature is broken".
+  card.style.display = '';
   const pending = pendingRequests();
-  card.style.display = (requestsAvailable && pending.length) ? '' : 'none';
-  if (!pending.length) return;
+
+  if (!requestsAvailable) {
+    title.textContent = 'Pending Corrections';
+    body.innerHTML = '<div class="empty-log">⚠️ Corrections need the updated Apps Script —'
+      + ' paste the new Code.gs and redeploy. Everything else keeps working.</div>';
+    return;
+  }
+  if (!pending.length) {
+    title.textContent = 'Pending Corrections';
+    body.innerHTML = '<div class="empty-log">Nothing waiting for approval.</div>';
+    return;
+  }
 
   title.innerHTML = 'Pending Corrections<span class="count-badge">' + pending.length + '</span>';
   body.innerHTML = pending.map(function(r) {
