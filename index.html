@@ -893,10 +893,11 @@ tr:hover td { background: var(--surface2); }
       <input type="date" id="occ-date-end">
     </div>
     <div class="modal-field" id="drive-field">
-      <label>Document Link (Google Drive) <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
+      <label>Supporting Document <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
       <input type="url" id="occ-drive" placeholder="https://drive.google.com/...">
       <div class="drive-hint">
-        📎 Upload to <a href="https://drive.google.com" target="_blank">Google Drive</a> and paste the link here
+        📎 Medical note, approved day off, vacation notice — upload it to
+        <a href="https://drive.google.com" target="_blank">Google Drive</a> and paste the link here
       </div>
     </div>
     <div class="modal-field">
@@ -1697,7 +1698,9 @@ async function saveOccurrence() {
       const rec = {
         id: genId(), user: currentUser, name: USERS[currentUser].name,
         type, date: d.toLocaleDateString('en-GB'),
-        time: '', notes: drive || notes, timestamp: new Date().toISOString()
+        // both, when both were filled — this used to keep only the link
+        time: '', notes: [drive, notes].filter(Boolean).join(' '),
+        timestamp: new Date().toISOString()
       };
       await saveRecordRemote(rec);
       saved++;
@@ -2056,13 +2059,17 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// A note may be a document link, a comment, or a link followed by a comment.
 function notesCell(notes, label) {
-  const n = String(notes || '');
+  const n = String(notes || '').trim();
   if (!n) return '—';
-  if (/^https?:\/\//i.test(n)) {
-    return '<a href="' + escapeHtml(n) + '" target="_blank" rel="noopener" style="color:var(--blue);font-size:12px">📎 ' + label + '</a>';
-  }
-  return '<span style="font-size:12px">' + escapeHtml(n) + '</span>';
+  const parts = n.match(/^(https?:\/\/\S+)\s*([\s\S]*)$/i);
+  if (!parts) return '<span style="font-size:12px">' + escapeHtml(n) + '</span>';
+  const link = '<a href="' + escapeHtml(parts[1]) + '" target="_blank" rel="noopener"'
+    + ' style="color:var(--blue);font-size:12px">📎 ' + label + '</a>';
+  return parts[2]
+    ? link + ' <span style="font-size:12px;color:var(--text2)">' + escapeHtml(parts[2]) + '</span>'
+    : link;
 }
 
 function localDateInput(d) {
@@ -2406,11 +2413,8 @@ async function adminResetPassword(key) {
 })();
 
 
-// Show/hide Drive field based on type
-document.getElementById('occ-type').addEventListener('change', function() {
-  document.getElementById('drive-field').style.display = this.value === 'Medical Leave' ? 'block' : 'none';
-});
-document.getElementById('drive-field').style.display = 'none';
+// The document link is offered for every occurrence type: a medical note, but
+// also the approval for a day off, a vacation notice, a holiday memo.
 </script>
 </body>
 </html>
