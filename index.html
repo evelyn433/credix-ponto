@@ -359,6 +359,27 @@ tr:hover td { background: var(--surface2); }
 .filter-item select:focus, .filter-item input:focus { border-color: var(--green); }
 .filter-item select option { background: var(--surface2); }
 
+/* ── VIEW SWITCH ── */
+.view-switch { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.view-btn {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--text2);
+  font-family: var(--font); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.view-btn:hover { color: var(--text); border-color: var(--text3); }
+.view-btn.active { background: var(--green-dim); border-color: rgba(0,201,110,0.3); color: var(--green); }
+.view-note { font-size: 11px; color: var(--text2); margin-left: auto; }
+
+/* ── BALANCE ── */
+.bal-pos { color: var(--green); font-weight: 600; }
+.bal-neg { color: var(--red); font-weight: 600; }
+.bal-zero { color: var(--text2); font-weight: 600; }
+.day-flag { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--gold); background: var(--gold-dim); border: 1px solid rgba(245,200,66,0.25); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+
 /* ── BUTTONS ── */
 .btn {
   padding: 10px 18px;
@@ -587,9 +608,6 @@ tr:hover td { background: var(--surface2); }
       <div class="nav-item active dashboard-nav" data-page="dashboard" onclick="showPage('dashboard')" id="nav-dashboard">
         <span class="icon">⏱</span> Dashboard
       </div>
-      <div class="nav-item" data-page="history" onclick="showPage('history')">
-        <span class="icon">📋</span> History
-      </div>
       <div class="nav-item" data-page="report" onclick="showPage('report')">
         <span class="icon">📊</span> Reports
       </div>
@@ -666,41 +684,11 @@ tr:hover td { background: var(--surface2); }
         </div>
       </div>
 
-      <!-- ── HISTORY ── -->
-      <div class="page" id="page-history">
-        <div class="page-header">
-          <div class="page-title">History</div>
-          <div class="page-sub">All your time records</div>
-        </div>
-        <div class="filters">
-          <div class="filter-item">
-            <select id="hist-month" onchange="renderHistory()">
-              <option value="">All months</option>
-              <option value="01">January</option><option value="02">February</option>
-              <option value="03">March</option><option value="04">April</option>
-              <option value="05">May</option><option value="06">June</option>
-              <option value="07">July</option><option value="08">August</option>
-              <option value="09">September</option><option value="10">October</option>
-              <option value="11">November</option><option value="12">December</option>
-            </select>
-          </div>
-          <div class="filter-item">
-            <input type="number" id="hist-year" placeholder="Year" min="2024" max="2099" oninput="renderHistory()">
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Type</th><th>Date</th><th>Time</th><th>Notes</th></tr></thead>
-            <tbody id="history-body"></tbody>
-          </table>
-        </div>
-      </div>
-
       <!-- ── REPORTS ── -->
       <div class="page" id="page-report">
         <div class="page-header">
           <div class="page-title">Reports</div>
-          <div class="page-sub">Export and analyze records</div>
+          <div class="page-sub">Hours worked, time balance and export</div>
         </div>
         <div class="filters">
           <div class="filter-item">
@@ -731,7 +719,23 @@ tr:hover td { background: var(--surface2); }
 
         <div class="grid-4" id="report-stats" style="margin-bottom:20px"></div>
 
-        <div class="table-wrap">
+        <div class="view-switch">
+          <button class="view-btn active" id="view-daily" onclick="setReportView('daily')">📅 By day</button>
+          <button class="view-btn" id="view-punches" onclick="setReportView('punches')">🕐 All punches</button>
+          <span class="view-note" id="report-note"></span>
+        </div>
+
+        <div class="table-wrap" id="report-daily-wrap">
+          <table>
+            <thead><tr>
+              <th>Collaborator</th><th>Date</th><th>In</th><th>Lunch</th><th>Out</th>
+              <th>Worked</th><th>Target</th><th>Balance</th>
+            </tr></thead>
+            <tbody id="report-daily-body"></tbody>
+          </table>
+        </div>
+
+        <div class="table-wrap" id="report-punches-wrap" style="display:none">
           <table>
             <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th></tr></thead>
             <tbody id="report-body"></tbody>
@@ -1365,7 +1369,7 @@ async function initApp() {
   const now = new Date();
   const mm = String(now.getMonth()+1).padStart(2,'0');
   const yy = now.getFullYear();
-  ['hist','rep','admin'].forEach(p => {
+  ['rep','admin'].forEach(p => {
     const mEl = document.getElementById(`${p}-month`);
     const yEl = document.getElementById(`${p}-year`);
     if (mEl) mEl.value = mm;
@@ -1420,7 +1424,6 @@ function showPage(page) {
   if (navEl) navEl.classList.add('active');
 
   if (page === 'account') { renderAccount(); }
-  if (page === 'history') { withRecords(renderHistory); }
   if (page === 'report') { withRecords(renderReport); }
   if (page === 'admin') { withUsers(renderCollaborators); withRecords(renderAdmin); }
 }
@@ -1703,86 +1706,201 @@ async function saveOccurrence() {
 // ═══════════════════════════════════════════════════
 // HISTORY
 // ═══════════════════════════════════════════════════
-function renderHistory() {
-  const mm = document.getElementById('hist-month').value;
-  const yy = document.getElementById('hist-year').value;
-  let recs = getRecords().filter(r => r.user === currentUser);
-  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
-  const tbody = document.getElementById('history-body');
-  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
-  tbody.innerHTML = recs.map(r => `
-    <tr>
-      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${escapeHtml(r.type)}</span></td>
-      <td>${formatDate(r.date)}</td>
-      <td>${formatTime(r.time)}</td>
-      <td>${notesCell(r.notes, 'Document')}</td>
-    </tr>`).join('');
+// ═══════════════════════════════════════════════════
+// TIME BALANCE (banco de horas)
+// ═══════════════════════════════════════════════════
+// Contracted worked time per day, lunch already excluded. Nine hours and
+// forty-eight minutes, as specified by the team.
+const DAILY_TARGET_SECONDS = 9 * 3600 + 48 * 60;
+
+// Collapses the punch list into one row per person per day.
+// A day only counts towards the balance when it is a plain, complete workday:
+//   - an odd number of punches means somebody forgot one, so the worked total
+//     is understated and would show up as debt that was never owed
+//   - a day carrying an occurrence (holiday, leave, vacation, day off) has a
+//     different target, so counting it against the full one invents debt
+function summariseDays(recs) {
+  const byKey = {};
+  recs.forEach(function(r) {
+    const key = r.user + '|' + r.date;
+    if (!byKey[key]) {
+      byKey[key] = { user: r.user, name: r.name, date: r.date, punches: [], occurrences: [] };
+    }
+    (isPunchType(r.type) ? byKey[key].punches : byKey[key].occurrences).push(r);
+  });
+
+  return Object.keys(byKey).map(function(key) {
+    const day = byKey[key];
+    const punches = day.punches.slice().sort((a, b) => timeKey(a.time) - timeKey(b.time));
+    const first = t => { const p = punches.find(r => r.type === t); return p ? p.time : ''; };
+
+    day.worked = workedSeconds(punches);
+    day.clockIn = first('Clock In');
+    day.lunchOut = first('Lunch Out');
+    day.lunchIn = first('Lunch In');
+    day.clockOut = first('Clock Out');
+    day.incomplete = punches.length > 0 && punches.length % 2 === 1;
+    day.hasOccurrence = day.occurrences.length > 0;
+
+    day.counts = punches.length > 0 && !day.incomplete && !day.hasOccurrence;
+    day.target = day.counts ? DAILY_TARGET_SECONDS : 0;
+    day.balance = day.counts ? day.worked - day.target : 0;
+    return day;
+  }).sort(function(a, b) {
+    return (dateKey(b.date) - dateKey(a.date)) || a.name.localeCompare(b.name);
+  });
+}
+
+function formatSigned(seconds) {
+  const sign = seconds < 0 ? '-' : '+';
+  return sign + formatDuration(Math.abs(seconds));
+}
+
+function balanceCell(seconds) {
+  const cls = seconds > 0 ? 'bal-pos' : seconds < 0 ? 'bal-neg' : 'bal-zero';
+  return '<span class="' + cls + '">' + formatSigned(seconds) + '</span>';
+}
+
+function dayFlag(day) {
+  if (day.incomplete) return '<span class="day-flag">missing punch</span>';
+  if (day.hasOccurrence) return '<span class="day-flag">' + escapeHtml(day.occurrences[0].type) + '</span>';
+  if (!day.punches.length) return '<span class="day-flag">no punches</span>';
+  return '';
 }
 
 // ═══════════════════════════════════════════════════
 // REPORT
 // ═══════════════════════════════════════════════════
-function renderReport() {
-  const fu = document.getElementById('rep-user').value;
-  const mm = document.getElementById('rep-month').value;
-  const yy = document.getElementById('rep-year').value;
-  const u = USERS[currentUser];
-  let recs = getRecords();
-  if (!u.admin) recs = recs.filter(r => r.user === currentUser);
-  else if (fu) recs = recs.filter(r => r.user === fu);
-  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
+let reportView = 'daily';
 
-  // Stats — hours are summed per person per day, so a filter covering several
-  // collaborators does not pair one person's clock in with another's clock out.
-  const clockIns = recs.filter(r => r.type === 'Clock In').length;
-  const occurrences = recs.filter(r => !isPunchType(r.type)).length;
-  const days = [...new Set(recs.map(r => r.date))].length;
-  const byUserDay = {};
-  recs.filter(r => isPunchType(r.type)).forEach(function(r) {
-    const k = r.user + '|' + r.date;
-    (byUserDay[k] = byUserDay[k] || []).push(r);
-  });
-  const totalSecs = Object.keys(byUserDay).reduce((sum, k) => sum + workedSeconds(byUserDay[k]), 0);
-  document.getElementById('report-stats').innerHTML = `
-    <div class="stat-card"><div class="stat-value" style="color:var(--green)">${formatDuration(totalSecs)}</div><div class="stat-label">Hours Worked</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--blue)">${days}</div><div class="stat-label">Active Days</div></div>
-    <div class="stat-card"><div class="stat-value">${clockIns}</div><div class="stat-label">Clock Ins</div></div>
-    <div class="stat-card"><div class="stat-value" style="color:var(--gold)">${occurrences}</div><div class="stat-label">Occurrences</div></div>
-  `;
-
-  const tbody = document.getElementById('report-body');
-  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
-  tbody.innerHTML = recs.map(r => `
-    <tr>
-      <td><span style="font-weight:500">${escapeHtml(r.name)}</span></td>
-      <td><span class="badge ${typeClass(r.type)}">${typeIcon(r.type)} ${escapeHtml(r.type)}</span></td>
-      <td>${formatDate(r.date)}</td>
-      <td>${formatTime(r.time)}</td>
-      <td>${notesCell(r.notes, 'Doc')}</td>
-    </tr>`).join('');
+function setReportView(view) {
+  reportView = view;
+  document.getElementById('view-daily').classList.toggle('active', view === 'daily');
+  document.getElementById('view-punches').classList.toggle('active', view === 'punches');
+  document.getElementById('report-daily-wrap').style.display = view === 'daily' ? '' : 'none';
+  document.getElementById('report-punches-wrap').style.display = view === 'punches' ? '' : 'none';
 }
 
-function exportCSV() {
+// The records the current filters select, honouring that a collaborator only
+// ever sees their own.
+function reportRecords() {
   const fu = document.getElementById('rep-user').value;
   const mm = document.getElementById('rep-month').value;
   const yy = document.getElementById('rep-year').value;
-  const u = USERS[currentUser];
   let recs = getRecords();
-  if (!u.admin) recs = recs.filter(r => r.user === currentUser);
+  if (!isAdmin(currentUser)) recs = recs.filter(r => r.user === currentUser);
   else if (fu) recs = recs.filter(r => r.user === fu);
-  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'asc');
+  return filterByMonthYear(recs, mm, yy);
+}
 
+function renderReport() {
+  const recs = sortRecords(reportRecords(), 'desc');
+  const days = summariseDays(recs);
+  const counted = days.filter(d => d.counts);
+  const skipped = days.filter(d => d.punches.length && !d.counts);
+
+  const worked = counted.reduce((s, d) => s + d.worked, 0);
+  const balance = counted.reduce((s, d) => s + d.balance, 0);
+  const occurrences = recs.filter(r => !isPunchType(r.type)).length;
+
+  document.getElementById('report-stats').innerHTML =
+    '<div class="stat-card"><div class="stat-value" style="color:var(--green)">' + formatDuration(worked) + '</div>'
+      + '<div class="stat-label">Hours Worked</div></div>'
+    + '<div class="stat-card"><div class="stat-value ' + (balance >= 0 ? 'bal-pos' : 'bal-neg') + '">' + formatSigned(balance) + '</div>'
+      + '<div class="stat-label">Time Balance</div></div>'
+    + '<div class="stat-card"><div class="stat-value" style="color:var(--blue)">' + counted.length + '</div>'
+      + '<div class="stat-label">Days Counted</div></div>'
+    + '<div class="stat-card"><div class="stat-value" style="color:var(--gold)">' + occurrences + '</div>'
+      + '<div class="stat-label">Occurrences</div></div>';
+
+  // Never let a day drop out of the balance silently.
+  const note = document.getElementById('report-note');
+  note.textContent = skipped.length
+    ? '⚠️ ' + skipped.length + ' day(s) left out of the balance — see the flags below'
+    : 'Target ' + formatDuration(DAILY_TARGET_SECONDS) + ' worked per day, lunch excluded';
+
+  renderDailyTable(days);
+  renderPunchTable(recs);
+}
+
+function renderDailyTable(days) {
+  const tbody = document.getElementById('report-daily-body');
+  if (!days.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = days.map(function(d) {
+    const lunch = (d.lunchOut || d.lunchIn)
+      ? formatTime(d.lunchOut) + ' → ' + formatTime(d.lunchIn)
+      : '—';
+    return '<tr>'
+      + '<td><span style="font-weight:500">' + escapeHtml(d.name) + '</span></td>'
+      + '<td>' + formatDate(d.date) + ' ' + dayFlag(d) + '</td>'
+      + '<td>' + formatTime(d.clockIn) + '</td>'
+      + '<td style="white-space:nowrap">' + lunch + '</td>'
+      + '<td>' + formatTime(d.clockOut) + '</td>'
+      + '<td>' + (d.punches.length ? formatDuration(d.worked) : '—') + '</td>'
+      + '<td>' + (d.counts ? formatDuration(d.target) : '—') + '</td>'
+      + '<td>' + (d.counts ? balanceCell(d.balance) : '—') + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function renderPunchTable(recs) {
+  const tbody = document.getElementById('report-body');
+  if (!recs.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = recs.map(r =>
+    '<tr>'
+    + '<td><span style="font-weight:500">' + escapeHtml(r.name) + '</span></td>'
+    + '<td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</span></td>'
+    + '<td>' + formatDate(r.date) + '</td>'
+    + '<td>' + formatTime(r.time) + '</td>'
+    + '<td>' + notesCell(r.notes, 'Doc') + '</td>'
+    + '</tr>').join('');
+}
+
+// Exports whichever view is on screen: the daily summary with the balance, or
+// the raw punch list, which is the underlying record.
+function exportCSV() {
+  const recs = sortRecords(reportRecords(), 'asc');
   if (!recs.length) { showToast('Nothing to export for this filter.', 'error'); return; }
 
-  const months = ['','jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  const suffix = [fu||'all', mm ? months[parseInt(mm)] : '', yy||''].filter(Boolean).join('_');
   const csvCell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-  const csv = 'Collaborator,Type,Date,Time,Notes\n' + recs.map(r =>
-    [r.name, r.type, r.date, r.time, r.notes].map(csvCell).join(',')).join('\n');
+  const toCsv = (header, rows) => header + '\n' + rows.map(r => r.map(csvCell).join(',')).join('\n');
+
+  let csv, kind;
+  if (reportView === 'daily') {
+    const days = summariseDays(recs).slice().reverse();  // oldest first
+    csv = toCsv('Collaborator,Date,Clock In,Lunch Out,Lunch In,Clock Out,Worked,Target,Balance,Note',
+      days.map(function(d) {
+        return [d.name, d.date, d.clockIn, d.lunchOut, d.lunchIn, d.clockOut,
+                d.punches.length ? formatDuration(d.worked) : '',
+                d.counts ? formatDuration(d.target) : '',
+                d.counts ? formatSigned(d.balance) : '',
+                d.incomplete ? 'missing punch'
+                  : d.hasOccurrence ? d.occurrences.map(o => o.type).join(' / ')
+                  : ''];
+      }));
+    kind = 'daily';
+  } else {
+    csv = toCsv('Collaborator,Type,Date,Time,Notes',
+      recs.map(r => [r.name, r.type, r.date, r.time, r.notes]));
+    kind = 'punches';
+  }
+
+  const fu = document.getElementById('rep-user').value;
+  const mm = document.getElementById('rep-month').value;
+  const yy = document.getElementById('rep-year').value;
+  const months = ['','jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const suffix = [kind, fu||'all', mm ? months[parseInt(mm)] : '', yy||''].filter(Boolean).join('_');
+
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `credix_timetrack_${suffix}.csv`; a.click();
-  showToast('✅ CSV exported!', 'success');
+  showToast('✅ CSV exported (' + kind + ')!', 'success');
 }
 
 // ═══════════════════════════════════════════════════
