@@ -55,17 +55,14 @@ function handleRequest(e) {
     const sheet = getRecordSheet_(ss);
 
     // ── REGISTROS ──────────────────────────────────────────
+    // Ler exige senha válida. A página é pública e o endereço do backend está
+    // no código-fonte dela, então sem isso qualquer um com o link leria a
+    // jornada de trabalho de todo mundo.
     if (action === "getRecords") {
-      const data = sheet.getDataRange().getValues();
-      const headerRow = data[0];
-      const records = data.slice(1)
-        .filter(function (row) { return String(row[0]).trim() !== ""; })
-        .map(function (row) {
-          const obj = {};
-          headerRow.forEach(function (h, i) { obj[h] = row[i]; });
-          return obj;
-        });
-      return json_({ success: true, records: records });
+      if (!authUser_(readUsers_(ss), body)) {
+        return json_({ success: false, authRequired: true, error: "Sign in required to read the records." });
+      }
+      return json_({ success: true, records: readRecords_(sheet) });
     }
 
     if (action === "addRecord") {
@@ -140,9 +137,12 @@ function handleRequest(e) {
       if (String(body.pwdHash || "") !== user.pwdHash) {
         return json_({ success: false, error: "Incorrect password." });
       }
+      // Os registros vão junto: a sessão acabou de ser autenticada, então isso
+      // poupa uma ida ao servidor logo depois — e cada ida custa ~1-2 segundos.
       return json_({
         success: true,
-        user: { key: user.key, name: user.name, admin: user.admin, hasWord: !!user.wordHash }
+        user: { key: user.key, name: user.name, admin: user.admin, hasWord: !!user.wordHash },
+        records: readRecords_(sheet)
       });
     }
 
@@ -218,6 +218,14 @@ function authorize_(users, user, body) {
   return "Current password, security word or admin password required.";
 }
 
+// Quem é a pessoa da requisição, conferindo a senha aqui no servidor.
+// Devolve o usuário, ou null se a senha não bate.
+function authUser_(users, body) {
+  const user = pickUser_(users, body.user);
+  if (!user || !user.pwdHash) return null;
+  return String(body.pwdHash || "") === user.pwdHash ? user : null;
+}
+
 function isAdminProof_(users, body) {
   if (!body.adminKey || !body.adminPwdHash) return false;
   const admin = pickUser_(users, body.adminKey);
@@ -245,6 +253,18 @@ function json_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function readRecords_(sheet) {
+  const data = sheet.getDataRange().getValues();
+  const headerRow = data[0];
+  return data.slice(1)
+    .filter(function (row) { return String(row[0]).trim() !== ""; })
+    .map(function (row) {
+      const obj = {};
+      headerRow.forEach(function (h, i) { obj[h] = row[i]; });
+      return obj;
+    });
 }
 
 function getRecordSheet_(ss) {

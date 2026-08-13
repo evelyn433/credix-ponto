@@ -965,23 +965,42 @@ function isRetriable(status) {
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-async function apiGet(action) {
+// Reads may be repeated safely, so they retry. `data` decides the method: a
+// read that carries credentials has to POST, to keep the password hash out of
+// the URL — query strings end up in browser history and server logs.
+async function apiRead(action, data) {
+  const target = data ? API_URL : API_URL + '?action=' + encodeURIComponent(action);
+  const init = data ? { method: 'POST', body: JSON.stringify(Object.assign({ action }, data)) } : undefined;
+
   let lastError;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt) await wait(RETRY_DELAYS_MS[attempt - 1]);
     try {
-      const res = await fetch(API_URL + '?action=' + encodeURIComponent(action));
-      if (res.ok) return res.json();
+      const res = await fetch(target, init);
+      if (res.ok) {
+        const json = await res.json();
+        // A refusal from the backend is an answer, not a transport glitch —
+        // retrying a wrong password or a denied read would only waste time.
+        if (json && json.success === false) {
+          const err = new Error(json.error || 'Request failed');
+          err.payload = json;
+          throw err;
+        }
+        return json;
+      }
       lastError = new Error('HTTP ' + res.status);
       if (!isRetriable(res.status)) break;
       console.warn('[credix-ponto] ' + action + ' HTTP ' + res.status + ' — retrying');
     } catch(e) {
+      if (e.payload) throw e;
       lastError = e;  // network failure, also worth a retry
       console.warn('[credix-ponto] ' + action + ' failed — retrying', e);
     }
   }
   throw lastError;
 }
+
+function apiGet(action) { return apiRead(action); }
 
 async function apiPost(action, data) {
   const res = await fetch(API_URL, {
@@ -1060,30 +1079,39 @@ function withRecords(render) {
   loadRecords(true).then(render);
 }
 
+function adoptRecords(list) {
+  ALL_RECORDS = list.map(function(r) {
+    return {
+      id: String(r.id || ''),
+      user: String(r.user || ''),
+      name: String(r.name || ''),
+      type: String(r.type || ''),
+      date: formatSheetDate(r.date),
+      time: formatSheetTime(r.time),
+      notes: String(r.notes || ''),
+      timestamp: String(r.timestamp || '')
+    };
+  });
+  recordsLoadedAt = Date.now();
+}
+
 async function fetchRecords(quiet) {
   try {
-    const res = await apiGet('getRecords');
+    // Reading is authenticated now, so there is nothing to fetch before login.
+    if (!currentUser || !sessionPwdHash) return false;
+    const res = await apiRead('getRecords', { user: currentUser, pwdHash: sessionPwdHash });
     if (!res || !res.success || !Array.isArray(res.records)) throw new Error('Invalid response');
-    ALL_RECORDS = res.records.map(function(r) {
-      return {
-        id: String(r.id || ''),
-        user: String(r.user || ''),
-        name: String(r.name || ''),
-        type: String(r.type || ''),
-        date: formatSheetDate(r.date),
-        time: formatSheetTime(r.time),
-        notes: String(r.notes || ''),
-        timestamp: String(r.timestamp || '')
-      };
-    });
+    adoptRecords(res.records);
     return true;
   } catch(e) {
     // Carry the reason: a CORS/redirect failure and a backend error look the
     // same to the user otherwise.
     console.error('[credix-ponto] getRecords failed:', e);
-    // the prefetch during login must not pop an error over the login screen
     if (!quiet) {
-      showToast('⚠️ Could not reach the spreadsheet (' + (e.message || 'unknown error') + ') — showing the last loaded data.', 'error');
+      const msg = (e.payload && e.payload.authRequired)
+        ? '⚠️ Your session expired — please sign in again.'
+        : '⚠️ Could not reach the spreadsheet (' + (e.message || 'unknown error') + ') — showing the last loaded data.';
+      showToast(msg, 'error');
     }
     return false;
   }
@@ -1308,9 +1336,12 @@ async function initApp() {
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
   else { repUser.value = ''; repUser.disabled = false; }
 
-  // Usually already fetched by the bootstrap prefetch, so this resolves at once
-  if (!ALL_RECORDS.length) showToast('Loading...', 'success');
-  await loadRecords();
+  // The login response already carried the records; only fetch if that did not
+  // happen (first access) or if this session has been sitting idle.
+  if (!ALL_RECORDS.length || Date.now() - recordsLoadedAt > RECORDS_FRESH_MS) {
+    if (!ALL_RECORDS.length) showToast('Loading...', 'success');
+    await loadRecords();
+  }
 
   if (u.admin) {
     // the admin manages other people's records and does not clock in here
@@ -1963,10 +1994,16 @@ async function doLogin() {
 
   const pwdHash = await hashSecret(pwd);
   let res;
-  try { res = await apiPost('login', { user: key, pwdHash }); }
+  try { res = await apiRead('login', { user: key, pwdHash }); }
   catch(e) {
-    // apiPost throws on {success:false}, which is also how a wrong password
-    // arrives — the backend's message is the one to show.
+    // A refusal carries the backend's own message — including the case where
+    // this browser's roster is stale and the account has no password yet.
+    if (e.payload && e.payload.needsPassword) {
+      USERS[key].hasPassword = false;
+      togglePasswordField();
+      err.textContent = 'First access — create your password below.';
+      return;
+    }
     err.textContent = e.message || 'Could not sign in — check your connection.';
     return;
   }
@@ -1974,6 +2011,8 @@ async function doLogin() {
 
   err.textContent = '';
   sessionPwdHash = pwdHash;
+  // login already returned the records, so the app opens filled
+  if (Array.isArray(res.records)) adoptRecords(res.records);
   enterApp(key);
 }
 
@@ -2102,14 +2141,13 @@ async function adminResetPassword(key) {
   showToast('🔓 Password cleared for ' + USERS[key].name + '.', 'success');
 }
 
-// Load users on page load so the login screen knows who needs a password, then
-// start pulling the records in the background. They are usually there by the
-// time someone finishes typing their password, so the app opens already filled.
+// Load users on page load so the login screen knows who needs a password.
+// The records cannot be prefetched here — reading them requires a password —
+// but they come back with the login response, so nothing is lost.
 (async function bootstrap() {
   await loadUsers();
   refreshDropdowns();
   togglePasswordField();
-  loadRecords(true);
 })();
 
 

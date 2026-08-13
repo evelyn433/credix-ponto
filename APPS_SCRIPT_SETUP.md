@@ -60,13 +60,13 @@ acesso.
 
 | Ação | Método | O que faz |
 |---|---|---|
-| `getRecords` | GET | devolve todos os registros |
+| `getRecords` | POST | devolve os registros — **exige usuário e senha válidos** |
 | `addRecord` | POST | grava uma batida ou ocorrência |
 | `updateRecord` | POST | corrige um registro pelo `id` |
 | `deleteRecord` | POST | apaga um registro pelo `id` |
 | `getUsers` | GET | colaboradores, sem hash — só se cada um já tem senha |
 | `saveUsers` | POST | salva a lista, preservando as senhas de quem continua |
-| `login` | POST | confere a senha e devolve os dados da pessoa |
+| `login` | POST | confere a senha e devolve a pessoa **e os registros**, poupando uma ida ao servidor |
 | `setPassword` | POST | grava uma senha nova, exigindo prova |
 | `setSecurityWord` | POST | grava a palavra de segurança, exigindo a senha atual |
 | `resetPassword` | POST | admin zera a senha de alguém |
@@ -74,6 +74,19 @@ acesso.
 `getSettings` e `saveSettings` foram removidas de propósito: eram a senha única
 do admin, e uma aba com o código antigo em cache leria "nenhuma senha" e
 voltaria a aceitar a senha padrão.
+
+## Leitura dos registros exige senha
+
+A página é pública e o endereço do backend está no código-fonte dela. Se
+`getRecords` fosse aberto, qualquer um com o link leria a jornada de trabalho de
+todo mundo. Então ler exige usuário e senha, conferidos aqui.
+
+`getUsers` continua aberto de propósito: a tela de login precisa da lista de
+nomes antes de alguém entrar. Isso expõe os nomes do time e quem já criou senha
+— não expõe registro de ponto nem hash.
+
+Consequência prática: não dá mais para conferir os registros colando a URL no
+navegador. Para diagnóstico, `?action=getUsers` continua funcionando.
 
 ## Cuidados que o backend toma
 
