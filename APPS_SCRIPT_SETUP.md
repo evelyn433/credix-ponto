@@ -1,104 +1,99 @@
-# Senha compartilhada entre dispositivos — ajuste no Apps Script
+# Backend na planilha (Google Apps Script)
 
-Hoje o app já tenta ler e gravar a senha de admin e a palavra de segurança na
-planilha. Enquanto o Apps Script não responder às ações `getSettings` e
-`saveSettings`, ele cai automaticamente no navegador e avisa na tela:
+O app é uma página estática. Quem guarda os dados é uma planilha do Google, e o
+que conversa com ela é um Apps Script publicado como Web App.
 
-> ⚠️ Saved in this browser only — set up the spreadsheet backend to share it across devices.
+## O que fica onde
 
-Depois de aplicar o passo a passo abaixo, a mensagem passa a ser
-"✅ Password updated on every device!" e a senha vale em qualquer celular ou
-computador.
+| Aba | Conteúdo |
+|---|---|
+| `Records` | um registro por linha — batida de ponto ou ocorrência |
+| `Users` | colaboradores, quem é admin, e o hash da senha e da palavra de segurança de cada um |
+| `Settings` | legado, esvaziada na migração — antes guardava a senha única do admin |
 
-As senhas **não** são gravadas em texto puro: o navegador envia apenas um hash
-SHA-256, então nem quem abre a planilha consegue ler a senha.
+As abas são criadas automaticamente na primeira vez que forem necessárias.
 
-## Caminho mais rápido: substituir o arquivo inteiro
+## Senhas
 
-O backend completo e atualizado está em **`apps-script/Code.gs`** neste
-repositório. No editor do Apps Script, apague todo o conteúdo do `Code.gs`,
-cole o arquivo daqui, salve e republique (passo 4 abaixo). É o mesmo código dos
-blocos abaixo, mais alguns ajustes de robustez:
+Cada pessoa tem a sua. O que vai para a planilha é sempre o **hash SHA-256** —
+a senha em texto puro nunca é gravada nem transmitida.
 
-- trava (`LockService`) para duas pessoas gravando ao mesmo tempo não
-  embaralharem as linhas
-- data e hora gravadas como texto, para o Sheets não converter `11/08/2026`
-  conforme o idioma nem transformar `20:42:07` em horário serial `1899-12-30T...`
-- `updateRecord`/`deleteRecord` avisam quando o registro não é encontrado, em vez
-  de responder "salvo" sem alterar nada
-- `saveUsers` recusa uma lista vazia, para uma requisição com problema não apagar
-  todos os colaboradores
-- notas que começam com `=` não viram fórmula na planilha
+Os hashes **não são devolvidos ao navegador**. A conferência acontece dentro do
+Apps Script, na ação `login`. Isso importa porque o endereço `/exec` é público:
+se os hashes viessem na resposta, qualquer um com o link poderia baixá-los e
+tentar quebrá-los offline.
 
-## Ou editar à mão
+Para gravar qualquer segredo o backend exige uma prova, conferida no servidor:
+
+- a senha atual da pessoa, ou
+- a palavra de segurança dela (é o "Forgot password?"), ou
+- a senha de um admin (é o "Reset password" do Admin Panel)
+
+A única exceção é o primeiro acesso: quem ainda não tem senha cria a sua ao
+entrar pela primeira vez.
+
+## Como atualizar o script
 
 1. Abra a planilha do ponto → menu **Extensões › Apps Script**.
-2. Cole o bloco 1 dentro do `handleRequest(e)`, junto dos outros `if (action === ...)`.
-3. Cole o bloco 2 no final do arquivo, fora de qualquer função.
-4. Salve (Ctrl+S) e clique em **Implantar › Gerenciar implantações › editar (lápis) ›
-   Versão: Nova versão › Implantar**. Sem esse passo o endereço `/exec` continua
-   rodando o código antigo.
-5. Recarregue o app e troque a senha em **Admin Panel › Change Password**.
+2. Apague todo o conteúdo do `Code.gs` e cole o arquivo **`apps-script/Code.gs`**
+   deste repositório.
+3. Salve (**Ctrl+S**).
+4. **Implantar › Gerenciar implantações › ✏️ (lápis) › Versão: Nova versão › Implantar**.
 
-## Bloco 1 — dentro do `handleRequest(e)`
+O passo 4 é obrigatório: sem ele o endereço `/exec` continua rodando o código
+antigo. E confira que o `Deployment ID` é o mesmo que está no `API_URL` do
+`index.html` — é assim que se sabe que é a implantação certa.
 
-O `doGet` e o `doPost` do script apenas repassam para `handleRequest(e)`, que já
-tem `action` e `ss` no escopo. Cole isto logo **antes** do
-`if (action === "getRecords")`, depois do bloco que cria a aba `Records`:
+Não altere **Execute as** (deve ser você, é o que dá permissão de escrever na
+planilha) nem **Who has access** (deve ser *Anyone*, senão a página não
+consegue ler o backend sem exigir login do Google de cada pessoa).
 
-```javascript
-    // ── SETTINGS (senha do admin + palavra de segurança) ──
-    if (action === "getSettings") {
-      return ContentService
-        .createTextOutput(JSON.stringify({ success: true, settings: readSettings_(ss) }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+## Migração da senha antiga
 
-    if (action === "saveSettings") {
-      const incoming = JSON.parse(e.postData.contents).settings || {};
-      writeSettings_(ss, incoming);
-      return ContentService
-        .createTextOutput(JSON.stringify({ success: true }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-```
+Quando havia uma senha só para o admin, ela morava na aba `Settings`. Na
+primeira leitura do código novo ela passa para o primeiro admin sem senha
+própria, e a aba `Settings` é esvaziada — assim, com dois admins, o segundo não
+herda a mesma senha. Quem não é admin começa sem senha e cria a sua no primeiro
+acesso.
 
-## Bloco 2 — no final do arquivo
+## Ações do backend
 
-Fora de qualquer função, depois do último `}` do arquivo:
+| Ação | Método | O que faz |
+|---|---|---|
+| `getRecords` | GET | devolve todos os registros |
+| `addRecord` | POST | grava uma batida ou ocorrência |
+| `updateRecord` | POST | corrige um registro pelo `id` |
+| `deleteRecord` | POST | apaga um registro pelo `id` |
+| `getUsers` | GET | colaboradores, sem hash — só se cada um já tem senha |
+| `saveUsers` | POST | salva a lista, preservando as senhas de quem continua |
+| `login` | POST | confere a senha e devolve os dados da pessoa |
+| `setPassword` | POST | grava uma senha nova, exigindo prova |
+| `setSecurityWord` | POST | grava a palavra de segurança, exigindo a senha atual |
+| `resetPassword` | POST | admin zera a senha de alguém |
 
-```javascript
-function readSettings_(ss) {
-  const out = { pwdHash: "", wordHash: "" };
-  const sh = ss.getSheetByName("Settings");
-  if (!sh) return out;
-  sh.getDataRange().getValues().slice(1).forEach(function (r) {
-    if (r[0]) out[String(r[0])] = String(r[1] || "");
-  });
-  return out;
-}
+`getSettings` e `saveSettings` foram removidas de propósito: eram a senha única
+do admin, e uma aba com o código antigo em cache leria "nenhuma senha" e
+voltaria a aceitar a senha padrão.
 
-function writeSettings_(ss, settings) {
-  const current = readSettings_(ss);
-  const next = {
-    pwdHash: settings.pwdHash ? String(settings.pwdHash) : current.pwdHash,
-    wordHash: settings.wordHash ? String(settings.wordHash) : current.wordHash
-  };
-  let sh = ss.getSheetByName("Settings");
-  if (!sh) sh = ss.insertSheet("Settings");
-  sh.clear();
-  sh.appendRow(["key", "value"]);
-  sh.appendRow(["pwdHash", next.pwdHash]);
-  sh.appendRow(["wordHash", next.wordHash]);
-}
-```
+## Cuidados que o backend toma
 
-## Observações
+- **`LockService`** serializa as gravações, para duas pessoas batendo ponto no
+  mesmo segundo não embaralharem as linhas
+- **Tudo é gravado como texto** (com apóstrofo), senão o Sheets reinterpreta
+  `11/08/2026` conforme o idioma e transforma `20:42:07` no horário serial
+  `1899-12-30T...` — era o que chegava torto no app
+- **`updateRecord`/`deleteRecord` avisam quando não acham o registro**, em vez de
+  responder "salvo" sem alterar nada
+- **`saveUsers` recusa lista vazia**, para uma requisição com problema não apagar
+  todos os colaboradores
+- **Notas que começam com `=` não viram fórmula** na planilha
 
-- A aba `Settings` é criada sozinha na primeira gravação. Não renomeie.
-- Enquanto nenhuma senha for definida, o app aceita a senha padrão `credix2026`.
-  Depois da primeira troca, ela deixa de funcionar.
-- Para esquecer a senha e recuperar o acesso, defina a **Security Word** em
-  Admin Panel; ela também fica salva como hash na mesma aba.
-- Para zerar tudo (voltar à senha padrão), apague as linhas `pwdHash` e
-  `wordHash` da aba `Settings`.
+## Emergência: ninguém consegue entrar
+
+Abra a aba `Users` na planilha e apague o valor da coluna `pwdHash` da pessoa.
+Ela cria uma senha nova no próximo acesso. Nenhum registro de ponto é afetado.
+
+## Descobrir qual planilha está ligada ao script
+
+No editor do Apps Script, selecione a função `qualPlanilha` e clique em **▶ Run**.
+O nome e o link aparecem no painel **Registro de execução**.
