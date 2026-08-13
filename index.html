@@ -122,7 +122,8 @@ body {
   margin-top: 4px;
   letter-spacing: 0.3px;
 }
-.btn-login:hover { background: #00e07a; transform: translateY(-1px); box-shadow: 0 8px 24px var(--green-glow); }
+.btn-login:hover:not(:disabled) { background: #00e07a; transform: translateY(-1px); box-shadow: 0 8px 24px var(--green-glow); }
+.btn-login:disabled { opacity: 0.55; cursor: wait; }
 
 .login-error { font-size: 12px; color: var(--red); margin-top: 10px; text-align: center; min-height: 16px; }
 
@@ -1032,6 +1033,26 @@ let usersRemote = false;
 
 function isAdmin(key) { return !!(USERS[key] && USERS[key].admin); }
 
+// The roster is cached in this browser so the login screen can list the names
+// instantly instead of waiting on a round trip. The copy is refreshed behind
+// the scenes, and the backend is always the authority on who has a password.
+const USERS_CACHE_KEY = 'credix_users_v1';
+let usersLoadedAt = 0;
+const USERS_FRESH_MS = 30000;
+
+function cacheUsers() {
+  try { localStorage.setItem(USERS_CACHE_KEY, JSON.stringify(USERS)); } catch(e) {}
+}
+
+function loadCachedUsers() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(USERS_CACHE_KEY) || 'null');
+    if (!parsed || !Object.keys(parsed).length) return false;
+    USERS = parsed;
+    return true;
+  } catch(e) { return false; }
+}
+
 async function loadUsers() {
   try {
     const res = await apiGet('getUsers');
@@ -1047,11 +1068,28 @@ async function loadUsers() {
         };
       });
       usersRemote = true;
-      return;
+      usersLoadedAt = Date.now();
+      cacheUsers();
+      return true;
     }
   } catch(e) {}
   usersRemote = false;
-  USERS = Object.assign({}, DEFAULT_USERS);
+  if (!Object.keys(USERS).length) USERS = Object.assign({}, DEFAULT_USERS);
+  return false;
+}
+
+// Paints from the copy we have, then refreshes it if stale and paints again.
+// This is what was missing: the collaborator table only ever showed the roster
+// as it was when the page opened, so someone who set their password meanwhile
+// stayed "Pending first access" until a full reload.
+function withUsers(render) {
+  render();
+  if (Date.now() - usersLoadedAt < USERS_FRESH_MS) return;
+  loadUsers().then(function(ok) {
+    if (!ok) return;
+    refreshDropdowns();
+    render();
+  });
 }
 
 // Every call to the Apps Script costs a second or two, so records are fetched
@@ -1221,8 +1259,13 @@ async function removeCollaborator(key) {
 
 async function refreshAdmin() {
   showToast('Refreshing...', 'success');
-  const ok = await loadRecords();
+  // force both, in parallel — the button exists precisely to bypass the cache
+  usersLoadedAt = 0;
+  recordsLoadedAt = 0;
+  const [ok] = await Promise.all([loadRecords(), loadUsers()]);
+  refreshDropdowns();
   renderAdmin();
+  renderCollaborators();
   if (ok) showToast('✅ Updated!', 'success');
 }
 
@@ -1302,9 +1345,9 @@ function resetDashboardVisibility() {
 }
 
 async function initApp() {
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-
+  // Everything below happens while #app is still hidden. Revealing it first
+  // made the admin see the dashboard — the default active page — flash for as
+  // long as the records took to load, before being hidden again.
   const u = USERS[currentUser];
   document.getElementById('sidebar-avatar').textContent = u.name.charAt(0).toUpperCase();
   document.getElementById('sidebar-name').textContent = u.name;
@@ -1336,27 +1379,33 @@ async function initApp() {
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
   else { repUser.value = ''; repUser.disabled = false; }
 
-  // The login response already carried the records; only fetch if that did not
-  // happen (first access) or if this session has been sitting idle.
-  if (!ALL_RECORDS.length || Date.now() - recordsLoadedAt > RECORDS_FRESH_MS) {
-    if (!ALL_RECORDS.length) showToast('Loading...', 'success');
-    await loadRecords();
-  }
-
+  // Decide the landing page BEFORE anything is on screen.
   if (u.admin) {
     // the admin manages other people's records and does not clock in here
     const dashNav = document.querySelector('.dashboard-nav');
     const dashPage = document.getElementById('page-dashboard');
     if (dashNav) dashNav.style.setProperty('display', 'none', 'important');
     if (dashPage) dashPage.style.setProperty('display', 'none', 'important');
-    showPage('admin');
   } else {
     resetDashboardVisibility();
     updateStatus();
     renderToday();
-    showPage('dashboard');
   }
   renderAccount();
+  showPage(u.admin ? 'admin' : 'dashboard');
+
+  // Now it is safe to show
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  // The login response already carried the records; only fetch if that did not
+  // happen (first access) or if this session has been sitting idle.
+  if (!ALL_RECORDS.length || Date.now() - recordsLoadedAt > RECORDS_FRESH_MS) {
+    if (!ALL_RECORDS.length) showToast('Loading...', 'success');
+    await loadRecords();
+    if (!u.admin) { updateStatus(); renderToday(); }
+    showPage(u.admin ? 'admin' : 'dashboard');
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -1373,7 +1422,7 @@ function showPage(page) {
   if (page === 'account') { renderAccount(); }
   if (page === 'history') { withRecords(renderHistory); }
   if (page === 'report') { withRecords(renderReport); }
-  if (page === 'admin') { renderCollaborators(); withRecords(renderAdmin); }
+  if (page === 'admin') { withUsers(renderCollaborators); withRecords(renderAdmin); }
 }
 
 // ═══════════════════════════════════════════════════
@@ -1949,19 +1998,9 @@ async function doLogin() {
   const err = document.getElementById('login-error');
   if (!key) { err.textContent = 'Please select your name.'; return; }
 
-  // No second getUsers here: the roster came in at page load, and the backend
-  // validates against the sheet anyway — it answers needsPassword if this
-  // cached view is stale. That removes a whole round trip from every login.
-  if (!usersRemote) {
-    err.textContent = 'Loading...';
-    await loadUsers();
-    refreshDropdowns();
-    document.getElementById('login-user').value = key;
-    if (!usersRemote) {
-      err.textContent = 'Could not reach the spreadsheet — check your connection and try again.';
-      return;
-    }
-  }
+  // No getUsers here: the roster is already in hand (cached or freshly loaded),
+  // and the backend validates against the sheet anyway — it answers
+  // needsPassword when this view is stale. One less round trip per login.
   if (!USERS[key]) { err.textContent = 'This collaborator no longer exists.'; togglePasswordField(); return; }
 
   // First access: create the password before entering.
@@ -1975,15 +2014,27 @@ async function doLogin() {
     if (!word) { err.textContent = 'Choose a security word — it is how you recover access.'; return; }
 
     const pwdHash = await hashSecret(newPwd);
+    err.textContent = '';
+    setLoginBusy(true, 'Creating…');
     try {
       await apiPost('setPassword', { user: key, pwdHash, wordHash: await hashSecret(word.toLowerCase()) });
     } catch(e) {
+      setLoginBusy(false);
+      // The cached roster said "no password" but the sheet disagrees — someone
+      // already set one, or this copy was simply out of date.
+      if (/current password/i.test(e.message || '')) {
+        USERS[key].hasPassword = true;
+        cacheUsers();
+        togglePasswordField();
+        err.textContent = 'This account already has a password — type it above.';
+        return;
+      }
       err.textContent = 'Could not save your password — ' + (e.message || 'check your connection.');
       return;
     }
-    err.textContent = '';
     sessionPwdHash = pwdHash;
     await loadUsers();
+    setLoginBusy(false);
     enterApp(key);
     showToast('✅ Password created — welcome, ' + USERS[key].name + '!', 'success');
     return;
@@ -1993,13 +2044,17 @@ async function doLogin() {
   if (!pwd) { err.textContent = 'Please enter your password.'; return; }
 
   const pwdHash = await hashSecret(pwd);
+  err.textContent = '';
+  setLoginBusy(true, 'Signing in…');
   let res;
   try { res = await apiRead('login', { user: key, pwdHash }); }
   catch(e) {
+    setLoginBusy(false);
     // A refusal carries the backend's own message — including the case where
     // this browser's roster is stale and the account has no password yet.
     if (e.payload && e.payload.needsPassword) {
       USERS[key].hasPassword = false;
+      cacheUsers();
       togglePasswordField();
       err.textContent = 'First access — create your password below.';
       return;
@@ -2007,13 +2062,23 @@ async function doLogin() {
     err.textContent = e.message || 'Could not sign in — check your connection.';
     return;
   }
-  if (!res || !res.user) { err.textContent = 'Could not sign in — please try again.'; return; }
+  if (!res || !res.user) { setLoginBusy(false); err.textContent = 'Could not sign in — please try again.'; return; }
 
-  err.textContent = '';
   sessionPwdHash = pwdHash;
   // login already returned the records, so the app opens filled
   if (Array.isArray(res.records)) adoptRecords(res.records);
+  setLoginBusy(false);
   enterApp(key);
+}
+
+// The login round trip takes a second or two. Without this the button just sat
+// there and the wait read as the app being stuck.
+function setLoginBusy(busy, label) {
+  const btn = document.getElementById('login-btn');
+  if (!btn) return;
+  btn.disabled = busy;
+  if (busy) btn.textContent = label;
+  else togglePasswordField();   // restores the right label for the current state
 }
 
 function enterApp(key) {
@@ -2141,13 +2206,20 @@ async function adminResetPassword(key) {
   showToast('🔓 Password cleared for ' + USERS[key].name + '.', 'success');
 }
 
-// Load users on page load so the login screen knows who needs a password.
-// The records cannot be prefetched here — reading them requires a password —
-// but they come back with the login response, so nothing is lost.
-(async function bootstrap() {
-  await loadUsers();
-  refreshDropdowns();
-  togglePasswordField();
+// Paint the login screen from the cached roster so the names are there at once,
+// then refresh it behind the scenes. The records cannot be prefetched — reading
+// them needs a password — but they come back with the login response.
+(function bootstrap() {
+  if (loadCachedUsers()) {
+    refreshDropdowns();
+    togglePasswordField();
+  }
+  loadUsers().then(function() {
+    const selected = document.getElementById('login-user').value;
+    refreshDropdowns();
+    document.getElementById('login-user').value = selected;
+    togglePasswordField();
+  });
 })();
 
 
