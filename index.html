@@ -126,16 +126,6 @@ body {
 
 .login-error { font-size: 12px; color: var(--red); margin-top: 10px; text-align: center; min-height: 16px; }
 
-.first-access-note {
-  font-size: 12px; line-height: 1.6; color: var(--green);
-  background: var(--green-dim); border: 1px solid rgba(0,201,110,0.2);
-  border-radius: 8px; padding: 11px 13px; margin-bottom: 14px;
-}
-
-/* ── GRID 4 ── */
-.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
-@media (max-width: 1100px) { .grid-4 { grid-template-columns: 1fr 1fr; } }
-
 /* ── MAIN APP ── */
 #app { display: none; min-height: 100vh; }
 
@@ -239,7 +229,7 @@ body {
 
 @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
 
-.punch-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-width: 340px; }
+.punch-btns { display: flex; flex-direction: column; gap: 10px; min-width: 180px; }
 .btn-punch {
   padding: 14px 20px;
   border: none;
@@ -255,17 +245,7 @@ body {
 .btn-punch.in:hover:not(:disabled) { background: #00e07a; box-shadow: 0 6px 20px var(--green-glow); }
 .btn-punch.out { background: var(--red); color: white; }
 .btn-punch.out:hover:not(:disabled) { background: #ff6b84; box-shadow: 0 6px 20px rgba(255,77,106,0.3); }
-.btn-punch.lunch-out { background: var(--orange); color: #080a0d; }
-.btn-punch.lunch-out:hover:not(:disabled) { background: #ffa066; box-shadow: 0 6px 20px rgba(255,140,66,0.3); }
-.btn-punch.lunch-in { background: var(--blue); color: #080a0d; }
-.btn-punch.lunch-in:hover:not(:disabled) { background: #74b5ff; box-shadow: 0 6px 20px rgba(77,159,255,0.3); }
 .btn-punch:disabled { opacity: 0.3; cursor: not-allowed; }
-
-.today-total {
-  font-size: 13px; font-weight: 600; color: var(--green);
-  background: var(--green-dim); border: 1px solid rgba(0,201,110,0.2);
-  border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;
-}
 
 /* ── GRID ── */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
@@ -291,8 +271,6 @@ body {
 .log-type { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .log-type.in { color: var(--green); }
 .log-type.out { color: var(--red); }
-.log-type.lunchout { color: var(--orange); }
-.log-type.lunchin { color: var(--blue); }
 .log-type.dayoff { color: var(--blue); }
 .log-type.medical { color: var(--gold); }
 .log-type.holiday { color: var(--purple); }
@@ -332,8 +310,6 @@ tr:hover td { background: var(--surface2); }
 }
 .badge.in    { background: var(--green-dim); color: var(--green); }
 .badge.out   { background: var(--red-dim); color: var(--red); }
-.badge.lunchout { background: var(--orange-dim); color: var(--orange); }
-.badge.lunchin  { background: var(--blue-dim); color: var(--blue); }
 .badge.dayoff    { background: var(--blue-dim); color: var(--blue); }
 .badge.medical   { background: var(--gold-dim); color: var(--gold); }
 .badge.holiday   { background: var(--purple-dim); color: var(--purple); }
@@ -474,9 +450,8 @@ tr:hover td { background: var(--surface2); }
   .btn-logout { width: auto; padding: 8px 12px; white-space: nowrap; }
   .main { margin-left: 0; padding: 20px; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
-  .grid-4 { grid-template-columns: 1fr 1fr; }
-  .clock-card { flex-direction: column; align-items: stretch; }
-  .punch-btns { width: 100%; min-width: 0; }
+  .clock-card { flex-direction: column; }
+  .punch-btns { flex-direction: row; width: 100%; }
 }
 </style>
 </head>
@@ -504,24 +479,7 @@ tr:hover td { background: var(--surface2); }
       <label>Password</label>
       <input type="password" id="login-password" placeholder="Enter password..." onkeydown="if(event.key==='Enter')doLogin()">
     </div>
-    <div id="create-pwd-section" style="display:none;">
-      <div class="first-access-note">
-        👋 First access — create your password. Only you will be able to clock in as yourself.
-      </div>
-      <div class="field">
-        <label>Create Password</label>
-        <input type="password" id="create-pwd" placeholder="At least 4 characters..." onkeydown="if(event.key==='Enter')doLogin()">
-      </div>
-      <div class="field">
-        <label>Confirm Password</label>
-        <input type="password" id="create-pwd-confirm" placeholder="Repeat the password..." onkeydown="if(event.key==='Enter')doLogin()">
-      </div>
-      <div class="field">
-        <label>Security Word <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— to recover it later</span></label>
-        <input type="text" id="create-word" placeholder="e.g. sunshine" onkeydown="if(event.key==='Enter')doLogin()">
-      </div>
-    </div>
-    <button class="btn-login" id="login-btn" onclick="doLogin()">Enter</button>
+    <button class="btn-login" onclick="doLogin()">Enter</button>
     <div class="login-error" id="login-error"></div>
     <div id="forgot-pwd-link" style="display:none;text-align:center;margin-top:14px;">
       <span onclick="openForgotPassword()" style="font-size:12px;color:var(--text2);cursor:pointer;text-decoration:underline;">Forgot password?</span>
@@ -552,22 +510,24 @@ tr:hover td { background: var(--surface2); }
 <div class="modal-overlay" id="forgot-modal">
   <div class="modal">
     <div class="modal-title">Reset Password</div>
-    <div class="modal-sub" id="forgot-sub">Answer your security word to set a new password</div>
+    <div class="modal-sub">Answer your security question to reset access</div>
     <div class="modal-field">
       <label>Security Word</label>
       <input type="text" id="forgot-security-word" placeholder="Enter your security word...">
     </div>
-    <div class="modal-field">
-      <label>New Password</label>
-      <input type="password" id="forgot-new-pwd" placeholder="Enter new password...">
-    </div>
-    <div class="modal-field">
-      <label>Confirm Password</label>
-      <input type="password" id="forgot-confirm-pwd" placeholder="Confirm new password...">
+    <div id="forgot-new-pwd-section" style="display:none;">
+      <div class="modal-field">
+        <label>New Password</label>
+        <input type="password" id="forgot-new-pwd" placeholder="Enter new password...">
+      </div>
+      <div class="modal-field">
+        <label>Confirm Password</label>
+        <input type="password" id="forgot-confirm-pwd" placeholder="Confirm new password...">
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('forgot-modal')">Cancel</button>
-      <button class="btn btn-green" id="forgot-btn" onclick="resetPassword()">Reset Password</button>
+      <button class="btn btn-green" id="forgot-btn" onclick="verifySecurityWord()">Verify</button>
     </div>
   </div>
 </div>
@@ -591,9 +551,6 @@ tr:hover td { background: var(--surface2); }
       </div>
       <div class="nav-item" data-page="report" onclick="showPage('report')">
         <span class="icon">📊</span> Reports
-      </div>
-      <div class="nav-item" data-page="account" onclick="showPage('account')">
-        <span class="icon">🔒</span> My Account
       </div>
       <div class="nav-item admin-nav" data-page="admin" onclick="showPage('admin')" style="display:none">
         <span class="icon">⚙️</span> Admin Panel
@@ -635,8 +592,6 @@ tr:hover td { background: var(--surface2); }
           </div>
           <div class="punch-btns">
             <button class="btn-punch in" id="btn-in" onclick="punch('Clock In')">▶ Clock In</button>
-            <button class="btn-punch lunch-out" id="btn-lunch-out" onclick="punch('Lunch Out')" disabled>🍽 Lunch Out</button>
-            <button class="btn-punch lunch-in" id="btn-lunch-in" onclick="punch('Lunch In')" disabled>↩ Lunch In</button>
             <button class="btn-punch out" id="btn-out" onclick="punch('Clock Out')" disabled>■ Clock Out</button>
           </div>
         </div>
@@ -644,7 +599,6 @@ tr:hover td { background: var(--surface2); }
         <div class="grid-2">
           <div class="card">
             <div class="card-title">Today's Records</div>
-            <div id="today-total" class="today-total" style="display:none"></div>
             <div id="today-log"><div class="empty-log">No records yet today.</div></div>
           </div>
           <div class="card">
@@ -728,63 +682,13 @@ tr:hover td { background: var(--surface2); }
           <button class="btn btn-green" onclick="exportCSV()">↓ Export CSV</button>
         </div>
 
-        <div class="grid-4" id="report-stats" style="margin-bottom:20px"></div>
+        <div class="grid-3" id="report-stats" style="margin-bottom:20px"></div>
 
         <div class="table-wrap">
           <table>
             <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th></tr></thead>
             <tbody id="report-body"></tbody>
           </table>
-        </div>
-      </div>
-
-      <!-- ── MY ACCOUNT ── -->
-      <div class="page" id="page-account">
-        <div class="page-header">
-          <div class="page-title">My Account</div>
-          <div class="page-sub">Your password and recovery word — stored hashed in the spreadsheet</div>
-        </div>
-
-        <div class="card" style="margin-bottom:16px;">
-          <div class="card-title">Change Password</div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:16px;line-height:1.6;">
-            Works on every device. Only you can clock in as yourself.
-          </div>
-          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-            <div style="flex:1;min-width:170px;">
-              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Current Password</div>
-              <input type="password" id="current-password" placeholder="Your password now..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
-            </div>
-            <div style="flex:1;min-width:170px;">
-              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Password</div>
-              <input type="password" id="new-password" placeholder="At least 4 characters..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
-            </div>
-            <div style="flex:1;min-width:170px;">
-              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Confirm Password</div>
-              <input type="password" id="confirm-password" placeholder="Repeat it..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
-            </div>
-            <button class="btn btn-green" onclick="changePassword()" style="padding:11px 20px;white-space:nowrap;">Save Password</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">Security Word</div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:16px;line-height:1.6;">
-            Used by "Forgot password?" to let you set a new password yourself.
-            <span id="account-word-status"></span>
-          </div>
-          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-            <div style="flex:1;min-width:170px;">
-              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Current Password</div>
-              <input type="password" id="word-current-password" placeholder="Your password..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
-            </div>
-            <div style="flex:1;min-width:170px;">
-              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Security Word</div>
-              <input type="text" id="new-security-word" placeholder="e.g. sunshine" style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
-            </div>
-            <button class="btn btn-green" onclick="changeSecurityWord()" style="padding:11px 20px;white-space:nowrap;">Save Word</button>
-          </div>
-          <div style="font-size:12px;color:var(--text2);margin-top:10px;">⚠️ Keep it private — it allows resetting your password. Not case sensitive.</div>
         </div>
       </div>
 
@@ -830,6 +734,35 @@ tr:hover td { background: var(--surface2); }
         </div>
 
         <div style="margin-top:28px;">
+          <div class="page-title" style="font-size:16px;margin-bottom:4px;">Change Password</div>
+          <div class="page-sub" style="margin-bottom:20px;">Update the admin password — applies on every device</div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Password</div>
+              <input type="password" id="new-password" placeholder="Enter new password..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <div style="flex:1;min-width:180px;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">Confirm Password</div>
+              <input type="password" id="confirm-password" placeholder="Confirm new password..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <button class="btn btn-green" onclick="changePassword()" style="padding:11px 20px;white-space:nowrap;">Save Password</button>
+          </div>
+        </div>
+
+        <div style="margin-top:28px;">
+          <div class="page-title" style="font-size:16px;margin-bottom:4px;">Security Word</div>
+          <div class="page-sub" style="margin-bottom:20px;">Used to recover your password if forgotten</div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:1;min-width:180px;">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;">New Security Word</div>
+              <input type="text" id="new-security-word" placeholder="e.g. sunshine, credix2026..." style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;outline:none;">
+            </div>
+            <button class="btn btn-green" onclick="changeSecurityWord()" style="padding:11px 20px;white-space:nowrap;">Save Word</button>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:8px;">⚠️ Keep this word private — it allows resetting your password.</div>
+        </div>
+
+        <div style="margin-top:28px;">
           <div class="page-title" style="font-size:16px;margin-bottom:4px;">Manage Collaborators</div>
           <div class="page-sub" style="margin-bottom:20px;">Add or remove team members</div>
 
@@ -843,7 +776,7 @@ tr:hover td { background: var(--surface2); }
 
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Role</th><th>Password</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Name</th><th>Role</th><th>Action</th></tr></thead>
               <tbody id="collab-body"></tbody>
             </table>
           </div>
@@ -913,8 +846,6 @@ tr:hover td { background: var(--surface2); }
       <label>Type</label>
       <select id="edit-type">
         <option value="Clock In">▶ Clock In</option>
-        <option value="Lunch Out">🍽 Lunch Out</option>
-        <option value="Lunch In">↩ Lunch In</option>
         <option value="Clock Out">■ Clock Out</option>
         <option value="Medical Leave">🏥 Medical Leave</option>
         <option value="Holiday">🎉 Holiday</option>
@@ -983,9 +914,6 @@ const DEFAULT_USERS = {
 let USERS = {};
 let ALL_RECORDS = [];
 let currentUser = null;
-// false when getUsers failed: USERS is then a guess, with no idea who has a
-// password, so the login screen must say so instead of offering first access
-let usersRemote = false;
 
 function isAdmin(key) { return !!(USERS[key] && USERS[key].admin); }
 
@@ -995,19 +923,11 @@ async function loadUsers() {
     if (res && res.success && Array.isArray(res.users) && res.users.length) {
       USERS = {};
       res.users.forEach(function(u) {
-        USERS[String(u.key)] = {
-          name: String(u.name),
-          admin: u.admin === true || u.admin === 'true',
-          // the backend never sends hashes; it only says whether they exist
-          hasPassword: u.hasPassword === true,
-          hasWord: u.hasWord === true
-        };
+        USERS[String(u.key)] = { name: String(u.name), admin: u.admin === true || u.admin === 'true' };
       });
-      usersRemote = true;
       return;
     }
   } catch(e) {}
-  usersRemote = false;
   USERS = Object.assign({}, DEFAULT_USERS);
 }
 
@@ -1115,14 +1035,14 @@ async function addCollaborator() {
   const key = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
   if (!key) { showToast('Please use letters or numbers in the name.', 'error'); return; }
   if (USERS[key]) { showToast('A collaborator with this name already exists.', 'error'); return; }
-  const next = Object.assign({}, USERS, { [key]: { name, admin: false, hasPassword: false, hasWord: false } });
+  const next = Object.assign({}, USERS, { [key]: { name, admin: false } });
   try { await saveUsersRemote(next); }
   catch(e) { showToast('❌ Could not save — check your connection and try again.', 'error'); return; }
   USERS = next;
   nameInput.value = '';
   refreshDropdowns();
   renderCollaborators();
-  showToast('✅ ' + name + ' added — they create their password on first access.', 'success');
+  showToast('✅ ' + name + ' added!', 'success');
 }
 
 async function removeCollaborator(key) {
@@ -1156,29 +1076,15 @@ function renderCollaborators() {
     const roleCell = u.admin
       ? '<span class="badge" style="background:var(--gold-dim);color:var(--gold)">&#9733; Admin</span>'
       : '<span class="badge" style="background:var(--surface2);color:var(--text2)">Collaborator</span>';
-    const pwdCell = u.hasPassword
-      ? '<span class="badge in">&#128274; Set</span>'
-      : '<span class="badge" style="background:var(--gold-dim);color:var(--gold)">Pending first access</span>';
-    let actions = '';
-    if (u.hasPassword && key !== currentUser) {
-      actions += '<button class="btn btn-outline btn-sm reset-pwd-btn" data-key="' + key + '">&#128275; Reset password</button> ';
-    }
-    if (!u.admin) {
-      actions += '<button class="btn btn-danger btn-sm remove-collab-btn" data-key="' + key + '">&#128465; Remove</button>';
-    }
-    if (!actions) actions = '<span style="color:var(--text3);font-size:12px">&mdash;</span>';
-    rows += '<tr><td><span style="font-weight:500">' + escapeHtml(u.name) + '</span></td><td>' + roleCell + '</td>'
-      + '<td>' + pwdCell + '</td><td style="white-space:nowrap">' + actions + '</td></tr>';
+    const actionCell = u.admin
+      ? '<span style="color:var(--text3);font-size:12px">&mdash;</span>'
+      : '<button class="btn btn-danger btn-sm remove-collab-btn" data-key="' + key + '">&#128465; Remove</button>';
+    rows += '<tr><td><span style="font-weight:500">' + escapeHtml(u.name) + '</span></td><td>' + roleCell + '</td><td>' + actionCell + '</td></tr>';
   });
   tbody.innerHTML = rows;
   tbody.querySelectorAll('.remove-collab-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       removeCollaborator(this.getAttribute('data-key'));
-    });
-  });
-  tbody.querySelectorAll('.reset-pwd-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      adminResetPassword(this.getAttribute('data-key'));
     });
   });
 }
@@ -1198,11 +1104,36 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ═══════════════════════════════════════════════════
-// AUTH — doLogin lives in the PASSWORD section below
+// AUTH
 // ═══════════════════════════════════════════════════
+async function doLogin() {
+  const key = document.getElementById('login-user').value;
+  const err = document.getElementById('login-error');
+  if (!key) { err.textContent = 'Please select your name.'; return; }
+
+  err.textContent = 'Loading...';
+  await loadUsers();
+  await loadSettings();
+  refreshDropdowns();
+  document.getElementById('login-user').value = key;
+  togglePasswordField();
+
+  if (!USERS[key]) { err.textContent = 'This collaborator no longer exists.'; return; }
+
+  if (isAdmin(key)) {
+    const pwd = document.getElementById('login-password').value;
+    if (!pwd) { err.textContent = 'Please enter your password.'; return; }
+    if (!(await verifyAdminPassword(pwd))) { err.textContent = 'Incorrect password.'; return; }
+  }
+
+  err.textContent = '';
+  document.getElementById('login-password').value = '';
+  currentUser = key;
+  initApp();
+}
+
 function doLogout() {
   currentUser = null;
-  sessionPwdHash = '';
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('login-user').value = '';
@@ -1273,7 +1204,6 @@ async function initApp() {
     renderToday();
     showPage('dashboard');
   }
-  renderAccount();
 }
 
 // ═══════════════════════════════════════════════════
@@ -1287,7 +1217,6 @@ function showPage(page) {
   const navEl = document.querySelector('.nav-item[data-page="' + page + '"]');
   if (navEl) navEl.classList.add('active');
 
-  if (page === 'account') { renderAccount(); }
   if (page === 'history') { loadRecords().then(() => renderHistory()); }
   if (page === 'report') { loadRecords().then(() => renderReport()); }
   if (page === 'admin') { loadRecords().then(() => { renderAdmin(); renderCollaborators(); }); }
@@ -1307,68 +1236,15 @@ function todayRecords() {
     .sort((a, b) => timeKey(a.time) - timeKey(b.time));
 }
 
-// ── The four punches of a day ────────────────────────────
-// Clock In → Lunch Out → Lunch In → Clock Out. Lunch is optional: someone
-// who does not break for lunch goes straight from Clock In to Clock Out.
-const PUNCH_TYPES = ['Clock In', 'Lunch Out', 'Lunch In', 'Clock Out'];
-
-// which buttons each state allows
-const PUNCH_FLOW = {
-  '':           ['Clock In'],
-  'Clock In':   ['Lunch Out', 'Clock Out'],
-  'Lunch Out':  ['Lunch In'],
-  'Lunch In':   ['Clock Out'],
-  'Clock Out':  []
-};
-
-const PUNCH_BUTTONS = {
-  'Clock In':  'btn-in',
-  'Lunch Out': 'btn-lunch-out',
-  'Lunch In':  'btn-lunch-in',
-  'Clock Out': 'btn-out'
-};
-
-const PUNCH_STATUS = {
-  '':           { cls: 'out', text: 'Not clocked in' },
-  'Clock In':   { cls: 'in',  text: 'Clocked in' },
-  'Lunch Out':  { cls: 'out', text: 'At lunch' },
-  'Lunch In':   { cls: 'in',  text: 'Back from lunch' },
-  'Clock Out':  { cls: 'out', text: 'Day complete' }
-};
-
-function isPunchType(type) { return PUNCH_TYPES.indexOf(type) > -1; }
-
 function getLastTodayRecord() {
-  const recs = todayRecords().filter(r => isPunchType(r.type));
+  const recs = todayRecords().filter(r => r.type === 'Clock In' || r.type === 'Clock Out');
   return recs.length ? recs[recs.length-1] : null;
 }
 
-// Seconds worked, pairing each start with the next stop. Tolerates a missing
-// punch instead of reporting a negative or absurd total.
-function workedSeconds(recs) {
-  const punches = recs.filter(r => isPunchType(r.type))
-    .slice().sort((a, b) => timeKey(a.time) - timeKey(b.time));
-  let total = 0, openAt = null;
-  punches.forEach(function(r) {
-    const t = timeKey(r.time);
-    if (r.type === 'Clock In' || r.type === 'Lunch In') {
-      if (openAt === null) openAt = t;
-    } else if (openAt !== null) {
-      total += Math.max(0, t - openAt);
-      openAt = null;
-    }
-  });
-  return total;
-}
-
-function formatDuration(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  return h + 'h ' + String(m).padStart(2, '0') + 'm';
-}
-
 async function punch(type) {
-  setPunchButtons([]);
+  const btnIn = document.getElementById('btn-in');
+  const btnOut = document.getElementById('btn-out');
+  btnIn.disabled = true; btnOut.disabled = true;
 
   const now = new Date();
   const rec = {
@@ -1379,7 +1255,7 @@ async function punch(type) {
   showToast('Saving...', 'success');
   try {
     await saveRecordRemote(rec);
-    showToast(PUNCH_MESSAGES[type] || '✅ Registered!', 'success');
+    showToast(type === 'Clock In' ? '▶ Clocked in successfully!' : '■ Clocked out successfully!', 'success');
   } catch(e) {
     showToast('❌ Not saved — check your connection and try again.', 'error');
   }
@@ -1387,31 +1263,20 @@ async function punch(type) {
   renderToday();
 }
 
-const PUNCH_MESSAGES = {
-  'Clock In':  '▶ Clocked in successfully!',
-  'Lunch Out': '🍽 Lunch break started.',
-  'Lunch In':  '↩ Back from lunch.',
-  'Clock Out': '■ Clocked out successfully!'
-};
-
-function setPunchButtons(allowed) {
-  PUNCH_TYPES.forEach(function(type) {
-    const btn = document.getElementById(PUNCH_BUTTONS[type]);
-    if (btn) btn.disabled = allowed.indexOf(type) === -1;
-  });
-}
-
 function updateStatus() {
   const last = getLastTodayRecord();
-  const state = last ? last.type : '';
-  const status = PUNCH_STATUS[state] || PUNCH_STATUS[''];
-
-  document.getElementById('status-dot').className = 'status-dot ' + status.cls;
+  const dot = document.getElementById('status-dot');
   const label = document.getElementById('status-label');
-  label.className = 'status-label ' + status.cls;
-  label.textContent = status.text;
+  const btnIn = document.getElementById('btn-in');
+  const btnOut = document.getElementById('btn-out');
 
-  setPunchButtons(PUNCH_FLOW[state] || []);
+  if (last && last.type === 'Clock In') {
+    dot.className = 'status-dot in'; label.className = 'status-label in'; label.textContent = 'Clocked in';
+    btnIn.disabled = true; btnOut.disabled = false;
+  } else {
+    dot.className = 'status-dot out'; label.className = 'status-label out'; label.textContent = 'Not clocked in';
+    btnIn.disabled = false; btnOut.disabled = true;
+  }
 }
 
 function formatTime(val) {
@@ -1439,15 +1304,6 @@ function renderToday() {
   const recs = todayRecords();
   const el = document.getElementById('today-log');
   if (!el) return;
-
-  const totalEl = document.getElementById('today-total');
-  if (totalEl) {
-    const secs = workedSeconds(recs);
-    const open = recs.filter(r => isPunchType(r.type)).length % 2 === 1;
-    totalEl.style.display = secs > 0 ? 'block' : 'none';
-    totalEl.textContent = '⏱ Worked today: ' + formatDuration(secs) + (open ? ' (still running)' : '');
-  }
-
   if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
   let rows = '';
   recs.forEach(function(r) {
@@ -1600,21 +1456,13 @@ function renderReport() {
   else if (fu) recs = recs.filter(r => r.user === fu);
   recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
 
-  // Stats — hours are summed per person per day, so a filter covering several
-  // collaborators does not pair one person's clock in with another's clock out.
+  // Stats
   const clockIns = recs.filter(r => r.type === 'Clock In').length;
-  const occurrences = recs.filter(r => !isPunchType(r.type)).length;
+  const occurrences = recs.filter(r => !['Clock In','Clock Out'].includes(r.type)).length;
   const days = [...new Set(recs.map(r => r.date))].length;
-  const byUserDay = {};
-  recs.filter(r => isPunchType(r.type)).forEach(function(r) {
-    const k = r.user + '|' + r.date;
-    (byUserDay[k] = byUserDay[k] || []).push(r);
-  });
-  const totalSecs = Object.keys(byUserDay).reduce((sum, k) => sum + workedSeconds(byUserDay[k]), 0);
   document.getElementById('report-stats').innerHTML = `
-    <div class="stat-card"><div class="stat-value" style="color:var(--green)">${formatDuration(totalSecs)}</div><div class="stat-label">Hours Worked</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--green)">${clockIns}</div><div class="stat-label">Clock Ins</div></div>
     <div class="stat-card"><div class="stat-value" style="color:var(--blue)">${days}</div><div class="stat-label">Active Days</div></div>
-    <div class="stat-card"><div class="stat-value">${clockIns}</div><div class="stat-label">Clock Ins</div></div>
     <div class="stat-card"><div class="stat-value" style="color:var(--gold)">${occurrences}</div><div class="stat-label">Occurrences</div></div>
   `;
 
@@ -1709,7 +1557,8 @@ async function saveEdit() {
 
   if (!userKey || !USERS[userKey]) { showToast('Please select a collaborator.', 'error'); return; }
   if (!dateRaw) { showToast('Please select a date.', 'error'); return; }
-  if (isPunchType(type) && !time) { showToast('Punch records need a time.', 'error'); return; }
+  const isPunch = type === 'Clock In' || type === 'Clock Out';
+  if (isPunch && !time) { showToast('Clock in/out records need a time.', 'error'); return; }
 
   const dateObj = new Date(dateRaw + 'T00:00:00');
   const date = dateObj.toLocaleDateString('en-GB');
@@ -1790,13 +1639,11 @@ function filterByMonthYear(recs, mm, yy) {
 }
 
 function typeClass(type) {
-  const map = { 'Clock In':'in', 'Clock Out':'out', 'Lunch Out':'lunchout', 'Lunch In':'lunchin',
-                'Day Off':'dayoff', 'Medical Leave':'medical', 'Holiday':'holiday', 'Vacation':'vacation' };
+  const map = { 'Clock In':'in', 'Clock Out':'out', 'Day Off':'dayoff', 'Medical Leave':'medical', 'Holiday':'holiday', 'Vacation':'vacation' };
   return map[type] || 'out';
 }
 function typeIcon(type) {
-  const map = { 'Clock In':'▶', 'Clock Out':'■', 'Lunch Out':'🍽', 'Lunch In':'↩',
-                'Day Off':'☀️', 'Medical Leave':'🏥', 'Holiday':'🎉', 'Vacation':'✈️' };
+  const map = { 'Clock In':'▶', 'Clock Out':'■', 'Day Off':'☀️', 'Medical Leave':'🏥', 'Holiday':'🎉', 'Vacation':'✈️' };
   return map[type] || '•';
 }
 
@@ -1816,10 +1663,13 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 });
 
-// ── PASSWORD (per user) ──────────────────────────────────
-// Every collaborator has their own password. Hashes live in the Users sheet
-// and never reach the browser: the backend compares them in the "login"
-// action, so nobody can read another person's hash from the public /exec URL.
+// ── PASSWORD ─────────────────────────────────────────────
+// Secrets are stored hashed in the spreadsheet so they work on every device.
+// Until the Apps Script exposes getSettings/saveSettings (see APPS_SCRIPT_SETUP.md)
+// this falls back to the browser and warns on save.
+const DEFAULT_ADMIN_PWD = 'credix2026';
+let SETTINGS = { pwdHash: '', wordHash: '' };
+let settingsRemote = false;
 
 async function hashSecret(value) {
   const s = String(value);
@@ -1828,9 +1678,59 @@ async function hashSecret(value) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-// The password typed at login, kept in memory only, to authorize later
-// changes (the backend demands proof for every secret it writes).
-let sessionPwdHash = '';
+async function loadSettings() {
+  try {
+    const res = await apiGet('getSettings');
+    if (res && res.success && res.settings) {
+      settingsRemote = true;
+      SETTINGS = { pwdHash: String(res.settings.pwdHash || ''), wordHash: String(res.settings.wordHash || '') };
+      return;
+    }
+  } catch(e) {}
+  settingsRemote = false;
+  SETTINGS = {
+    pwdHash: localStorage.getItem('credix_pwd_hash') || '',
+    wordHash: localStorage.getItem('credix_word_hash') || ''
+  };
+}
+
+async function saveSettingsPatch(patch) {
+  // Re-check the backend before every save: the page may have been opened
+  // before the Apps Script was deployed, or another admin may have changed
+  // a secret in the meantime.
+  await loadSettings();
+  const prev = SETTINGS;
+  SETTINGS = Object.assign({}, SETTINGS, patch);
+  if (settingsRemote) {
+    let res;
+    try { res = await apiPost('saveSettings', { settings: SETTINGS }); }
+    catch(e) { SETTINGS = prev; throw e; }
+    // The backend answers {success:false,error} on a refused write — without
+    // this the app reported "updated on every device" for a failed save.
+    if (!res || res.success !== true) {
+      SETTINGS = prev;
+      throw new Error((res && res.error) || 'the spreadsheet refused the write');
+    }
+    return true;
+  }
+  localStorage.setItem('credix_pwd_hash', SETTINGS.pwdHash);
+  localStorage.setItem('credix_word_hash', SETTINGS.wordHash);
+  return false;
+}
+
+const LOCAL_ONLY_WARNING = '⚠️ Saved in this browser only — set up the spreadsheet backend to share it across devices.';
+
+async function verifyAdminPassword(pwd) {
+  if (!SETTINGS.pwdHash) return pwd === DEFAULT_ADMIN_PWD;
+  return (await hashSecret(pwd)) === SETTINGS.pwdHash;
+}
+
+function togglePasswordField() {
+  const admin = isAdmin(document.getElementById('login-user').value);
+  document.getElementById('password-field').style.display = admin ? 'block' : 'none';
+  document.getElementById('forgot-pwd-link').style.display = admin ? 'block' : 'none';
+  if (!admin) document.getElementById('login-password').value = '';
+}
 
 function validateNewPassword(newPwd, confirmPwd) {
   if (!newPwd) { showToast('Please enter a new password.', 'error'); return false; }
@@ -1839,220 +1739,70 @@ function validateNewPassword(newPwd, confirmPwd) {
   return true;
 }
 
-// Shows the password box, or the first-access box for someone with no
-// password yet, and hides "Forgot password?" when there is no word to answer.
-function togglePasswordField() {
-  const key = document.getElementById('login-user').value;
-  const user = USERS[key];
-  const known = !!user;
-  // never offer first access on a guessed roster — doLogin reports the outage
-  const needsSetup = known && usersRemote && !user.hasPassword;
-
-  document.getElementById('password-field').style.display = (known && !needsSetup) ? 'block' : 'none';
-  document.getElementById('create-pwd-section').style.display = needsSetup ? 'block' : 'none';
-  document.getElementById('forgot-pwd-link').style.display = (known && !needsSetup && user.hasWord) ? 'block' : 'none';
-  document.getElementById('login-btn').textContent = needsSetup ? 'Create password & enter' : 'Enter';
-
-  if (!known || needsSetup) document.getElementById('login-password').value = '';
-  if (!needsSetup) {
-    document.getElementById('create-pwd').value = '';
-    document.getElementById('create-pwd-confirm').value = '';
-    document.getElementById('create-word').value = '';
-  }
-}
-
-async function doLogin() {
-  const key = document.getElementById('login-user').value;
-  const err = document.getElementById('login-error');
-  if (!key) { err.textContent = 'Please select your name.'; return; }
-
-  err.textContent = 'Loading...';
-  await loadUsers();
-  refreshDropdowns();
-  document.getElementById('login-user').value = key;
-
-  if (!usersRemote) {
-    err.textContent = 'Could not reach the spreadsheet — check your connection and try again.';
-    return;
-  }
-  if (!USERS[key]) { err.textContent = 'This collaborator no longer exists.'; togglePasswordField(); return; }
-
-  // First access: create the password before entering.
-  if (!USERS[key].hasPassword) {
-    togglePasswordField();
-    const newPwd = document.getElementById('create-pwd').value;
-    const confirmPwd = document.getElementById('create-pwd-confirm').value;
-    const word = document.getElementById('create-word').value.trim();
-    if (!newPwd && !confirmPwd) { err.textContent = 'Create a password to continue.'; return; }
-    if (!validateNewPassword(newPwd, confirmPwd)) { err.textContent = ''; return; }
-    if (!word) { err.textContent = 'Choose a security word — it is how you recover access.'; return; }
-
-    const pwdHash = await hashSecret(newPwd);
-    try {
-      await apiPost('setPassword', { user: key, pwdHash, wordHash: await hashSecret(word.toLowerCase()) });
-    } catch(e) {
-      err.textContent = 'Could not save your password — ' + (e.message || 'check your connection.');
-      return;
-    }
-    err.textContent = '';
-    sessionPwdHash = pwdHash;
-    await loadUsers();
-    enterApp(key);
-    showToast('✅ Password created — welcome, ' + USERS[key].name + '!', 'success');
-    return;
-  }
-
-  const pwd = document.getElementById('login-password').value;
-  if (!pwd) { err.textContent = 'Please enter your password.'; return; }
-
-  const pwdHash = await hashSecret(pwd);
-  let res;
-  try { res = await apiPost('login', { user: key, pwdHash }); }
-  catch(e) {
-    // apiPost throws on {success:false}, which is also how a wrong password
-    // arrives — the backend's message is the one to show.
-    err.textContent = e.message || 'Could not sign in — check your connection.';
-    return;
-  }
-  if (!res || !res.user) { err.textContent = 'Could not sign in — please try again.'; return; }
-
-  err.textContent = '';
-  sessionPwdHash = pwdHash;
-  enterApp(key);
-}
-
-function enterApp(key) {
-  document.getElementById('login-password').value = '';
-  document.getElementById('create-pwd').value = '';
-  document.getElementById('create-pwd-confirm').value = '';
-  document.getElementById('create-word').value = '';
-  currentUser = key;
-  initApp();
-}
-
-// Proof the backend accepts for writing one of my own secrets.
-function selfProof() {
-  const proof = { user: currentUser, currentPwdHash: sessionPwdHash };
-  if (isAdmin(currentUser)) { proof.adminKey = currentUser; proof.adminPwdHash = sessionPwdHash; }
-  return proof;
-}
-
 async function changePassword() {
-  const current = document.getElementById('current-password').value;
   const newPwd = document.getElementById('new-password').value;
   const confirmPwd = document.getElementById('confirm-password').value;
-  if (!current) { showToast('Enter your current password.', 'error'); return; }
   if (!validateNewPassword(newPwd, confirmPwd)) return;
-
-  const pwdHash = await hashSecret(newPwd);
-  try {
-    await apiPost('setPassword', { user: currentUser, pwdHash, currentPwdHash: await hashSecret(current) });
-  } catch(e) {
-    showToast('❌ Could not save the password — ' + (e.message || 'check your connection.'), 'error');
-    return;
-  }
-  sessionPwdHash = pwdHash;
-  ['current-password','new-password','confirm-password'].forEach(id => { document.getElementById(id).value = ''; });
-  await loadUsers();
-  showToast('✅ Password updated on every device!', 'success');
+  let remote;
+  try { remote = await saveSettingsPatch({ pwdHash: await hashSecret(newPwd) }); }
+  catch(e) { showToast('❌ Could not save the password — ' + (e.message || 'check your connection.'), 'error'); return; }
+  document.getElementById('new-password').value = '';
+  document.getElementById('confirm-password').value = '';
+  showToast(remote ? '✅ Password updated on every device!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
 
 async function changeSecurityWord() {
-  const current = document.getElementById('word-current-password').value;
   const word = document.getElementById('new-security-word').value.trim();
-  if (!current) { showToast('Enter your current password.', 'error'); return; }
   if (!word) { showToast('Please enter a security word.', 'error'); return; }
-
-  try {
-    await apiPost('setSecurityWord', {
-      user: currentUser,
-      wordHash: await hashSecret(word.toLowerCase()),
-      currentPwdHash: await hashSecret(current)
-    });
-  } catch(e) {
-    showToast('❌ Could not save the security word — ' + (e.message || 'check your connection.'), 'error');
-    return;
-  }
-  document.getElementById('word-current-password').value = '';
+  let remote;
+  try { remote = await saveSettingsPatch({ wordHash: await hashSecret(word.toLowerCase()) }); }
+  catch(e) { showToast('❌ Could not save the security word — ' + (e.message || 'check your connection.'), 'error'); return; }
   document.getElementById('new-security-word').value = '';
-  await loadUsers();
-  renderAccount();
-  showToast('✅ Security word updated!', 'success');
-}
-
-function renderAccount() {
-  const el = document.getElementById('account-word-status');
-  if (!el) return;
-  const u = USERS[currentUser];
-  el.innerHTML = (u && u.hasWord)
-    ? '<span style="color:var(--green)">A security word is set.</span>'
-    : '<span style="color:var(--gold)">No security word yet — set one now.</span>';
+  showToast(remote ? '✅ Security word updated!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
 
 async function openForgotPassword() {
-  const key = document.getElementById('login-user').value;
-  await loadUsers();
-  refreshDropdowns();
-  document.getElementById('login-user').value = key;
-  if (!USERS[key]) { showToast('Select your name first.', 'error'); return; }
-  if (!USERS[key].hasWord) {
-    showToast('No security word set for ' + USERS[key].name + '. Ask the admin to reset it.', 'error');
-    return;
+  await loadSettings();
+  if (!SETTINGS.wordHash) {
+    showToast('No security word set. Contact your admin.', 'error'); return;
   }
-  document.getElementById('forgot-sub').textContent = 'Resetting the password for ' + USERS[key].name;
   document.getElementById('forgot-security-word').value = '';
   document.getElementById('forgot-new-pwd').value = '';
   document.getElementById('forgot-confirm-pwd').value = '';
+  document.getElementById('forgot-new-pwd-section').style.display = 'none';
+  document.getElementById('forgot-btn').textContent = 'Verify';
+  document.getElementById('forgot-btn').onclick = verifySecurityWord;
   openModal('forgot-modal');
 }
 
+async function verifySecurityWord() {
+  const word = document.getElementById('forgot-security-word').value.trim().toLowerCase();
+  if ((await hashSecret(word)) !== SETTINGS.wordHash) {
+    showToast('Incorrect security word.', 'error'); return;
+  }
+  document.getElementById('forgot-new-pwd-section').style.display = 'block';
+  document.getElementById('forgot-btn').textContent = 'Reset Password';
+  document.getElementById('forgot-btn').onclick = resetPassword;
+}
+
 async function resetPassword() {
-  const key = document.getElementById('login-user').value;
-  const word = document.getElementById('forgot-security-word').value.trim();
   const newPwd = document.getElementById('forgot-new-pwd').value;
   const confirmPwd = document.getElementById('forgot-confirm-pwd').value;
-  if (!USERS[key]) { showToast('Select your name first.', 'error'); return; }
-  if (!word) { showToast('Enter your security word.', 'error'); return; }
   if (!validateNewPassword(newPwd, confirmPwd)) return;
-
-  try {
-    await apiPost('setPassword', {
-      user: key,
-      pwdHash: await hashSecret(newPwd),
-      wordHash: await hashSecret(word.toLowerCase())
-    });
-  } catch(e) {
-    showToast('❌ ' + (e.message || 'Could not reset the password.'), 'error');
-    return;
-  }
+  let remote;
+  try { remote = await saveSettingsPatch({ pwdHash: await hashSecret(newPwd) }); }
+  catch(e) { showToast('❌ Could not reset the password — ' + (e.message || 'check your connection.'), 'error'); return; }
   closeModal('forgot-modal');
-  await loadUsers();
-  togglePasswordField();
-  showToast('✅ Password reset — sign in with the new one.', 'success');
+  showToast(remote ? '✅ Password reset successfully!' : LOCAL_ONLY_WARNING, remote ? 'success' : 'error');
 }
 
-// Admin clears someone's password; they create a new one on their next access.
-async function adminResetPassword(key) {
-  if (!USERS[key]) return;
-  if (!confirm('Reset the password for ' + USERS[key].name + '?\n\nThey will create a new one on their next sign in.')) return;
-  try {
-    await apiPost('resetPassword', { user: key, adminKey: currentUser, adminPwdHash: sessionPwdHash });
-  } catch(e) {
-    showToast('❌ Could not reset — ' + (e.message || 'check your connection.'), 'error');
-    return;
-  }
-  await loadUsers();
-  renderCollaborators();
-  showToast('🔓 Password cleared for ' + USERS[key].name + '.', 'success');
-}
-
-// Load users on page load so the login screen knows who needs a password
+// Load users + settings on page load so the login screen knows who is admin
 (async function bootstrap() {
   await loadUsers();
   refreshDropdowns();
   togglePasswordField();
+  await loadSettings();
 })();
-
 
 // Show/hide Drive field based on type
 document.getElementById('occ-type').addEventListener('change', function() {
