@@ -949,7 +949,10 @@ async function loadRecords() {
     });
     return true;
   } catch(e) {
-    showToast('⚠️ Could not reach the spreadsheet — showing the last loaded data.', 'error');
+    // Carry the reason: a CORS/redirect failure and a backend error look the
+    // same to the user otherwise.
+    console.error('[credix-ponto] getRecords failed:', e);
+    showToast('⚠️ Could not reach the spreadsheet (' + (e.message || 'unknown error') + ') — showing the last loaded data.', 'error');
     return false;
   }
 }
