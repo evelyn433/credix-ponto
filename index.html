@@ -720,9 +720,20 @@ tr:hover td { background: var(--surface2); }
         <div class="grid-4" id="report-stats" style="margin-bottom:20px"></div>
 
         <div class="view-switch">
+          <button class="view-btn" id="view-person" onclick="setReportView('person')" style="display:none">👥 By person</button>
           <button class="view-btn active" id="view-daily" onclick="setReportView('daily')">📅 By day</button>
           <button class="view-btn" id="view-punches" onclick="setReportView('punches')">🕐 All punches</button>
           <span class="view-note" id="report-note"></span>
+        </div>
+
+        <div class="table-wrap" id="report-person-wrap" style="display:none">
+          <table>
+            <thead><tr>
+              <th>Collaborator</th><th>Days Counted</th><th>Hours Worked</th>
+              <th>Expected</th><th>Balance</th><th>Not Counted</th>
+            </tr></thead>
+            <tbody id="report-person-body"></tbody>
+          </table>
         </div>
 
         <div class="table-wrap" id="report-daily-wrap">
@@ -1383,6 +1394,11 @@ async function initApp() {
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
   else { repUser.value = ''; repUser.disabled = false; }
 
+  // The admin's first question is how the whole team stands, a collaborator's is
+  // how their own days went.
+  document.getElementById('view-person').style.display = u.admin ? '' : 'none';
+  setReportView(u.admin ? 'person' : 'daily');
+
   // Decide the landing page BEFORE anything is on screen.
   if (u.admin) {
     // the admin manages other people's records and does not clock in here
@@ -1773,12 +1789,54 @@ function dayFlag(day) {
 // ═══════════════════════════════════════════════════
 let reportView = 'daily';
 
+const REPORT_VIEWS = ['person', 'daily', 'punches'];
+
 function setReportView(view) {
   reportView = view;
-  document.getElementById('view-daily').classList.toggle('active', view === 'daily');
-  document.getElementById('view-punches').classList.toggle('active', view === 'punches');
-  document.getElementById('report-daily-wrap').style.display = view === 'daily' ? '' : 'none';
-  document.getElementById('report-punches-wrap').style.display = view === 'punches' ? '' : 'none';
+  REPORT_VIEWS.forEach(function(v) {
+    const btn = document.getElementById('view-' + v);
+    if (btn) btn.classList.toggle('active', v === view);
+    const wrap = document.getElementById('report-' + v + '-wrap');
+    if (wrap) wrap.style.display = v === view ? '' : 'none';
+  });
+}
+
+// One row per collaborator: what the admin needs to see the whole team's
+// balance at once, instead of switching the filter person by person.
+function summarisePeople(days) {
+  const byUser = {};
+  days.forEach(function(d) {
+    const p = byUser[d.user] = byUser[d.user] ||
+      { user: d.user, name: d.name, daysCounted: 0, worked: 0, expected: 0, balance: 0, skipped: 0 };
+    if (d.counts) {
+      p.daysCounted++;
+      p.worked += d.worked;
+      p.expected += d.target;
+      p.balance += d.balance;
+    } else if (d.punches.length) {
+      p.skipped++;
+    }
+  });
+  return Object.keys(byUser).map(k => byUser[k])
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderPersonTable(people) {
+  const tbody = document.getElementById('report-person-body');
+  if (!people.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = people.map(function(p) {
+    return '<tr>'
+      + '<td><span style="font-weight:500">' + escapeHtml(p.name) + '</span></td>'
+      + '<td>' + p.daysCounted + '</td>'
+      + '<td>' + formatDuration(p.worked) + '</td>'
+      + '<td>' + formatDuration(p.expected) + '</td>'
+      + '<td>' + balanceCell(p.balance) + '</td>'
+      + '<td>' + (p.skipped ? '<span class="day-flag">' + p.skipped + ' day(s)</span>' : '—') + '</td>'
+      + '</tr>';
+  }).join('');
 }
 
 // The records the current filters select, honouring that a collaborator only
@@ -1819,6 +1877,7 @@ function renderReport() {
     ? '⚠️ ' + skipped.length + ' day(s) left out of the balance — see the flags below'
     : 'Target ' + formatDuration(DAILY_TARGET_SECONDS) + ' worked per day, lunch excluded';
 
+  renderPersonTable(summarisePeople(days));
   renderDailyTable(days);
   renderPunchTable(recs);
 }
@@ -1872,7 +1931,13 @@ function exportCSV() {
   const toCsv = (header, rows) => header + '\n' + rows.map(r => r.map(csvCell).join(',')).join('\n');
 
   let csv, kind;
-  if (reportView === 'daily') {
+  if (reportView === 'person') {
+    const people = summarisePeople(summariseDays(recs));
+    csv = toCsv('Collaborator,Days Counted,Hours Worked,Expected,Balance,Days Not Counted',
+      people.map(p => [p.name, p.daysCounted, formatDuration(p.worked),
+                       formatDuration(p.expected), formatSigned(p.balance), p.skipped]));
+    kind = 'balance';
+  } else if (reportView === 'daily') {
     const days = summariseDays(recs).slice().reverse();  // oldest first
     csv = toCsv('Collaborator,Date,Clock In,Lunch Out,Lunch In,Clock Out,Worked,Target,Balance,Note',
       days.map(function(d) {
