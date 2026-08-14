@@ -116,6 +116,18 @@ Regras conferidas no servidor:
 A linha do pedido nunca é apagada: ela é o histórico de quem pediu, por quê, e
 quem aprovou.
 
+## Custo de cada chamada
+
+Cada ação custa leituras de planilha, e é isso que faz o app parecer lento — não
+a rede. Um `login` faz 4 leituras: usuários, registros, pedidos, e a abertura da
+aba `Records`. Duas coisas evitam desperdício:
+
+- **A aba `Records` é aberta só por quem precisa dela.** `getUsers`, que roda no
+  carregamento de toda página, não toca nela.
+- **A migração da senha antiga é marcada numa propriedade do script.** Antes ela
+  lia a aba `Settings` em toda requisição que olhasse um usuário, para descobrir
+  que não havia nada a migrar.
+
 ## Cuidados que o backend toma
 
 - **`LockService`** serializa as gravações, para duas pessoas batendo ponto no

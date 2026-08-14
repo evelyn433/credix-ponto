@@ -1077,13 +1077,20 @@ const API_URL = "https://script.google.com/macros/s/AKfycbybem_4w5ogS6qglVgaqKCm
 // a redeploy settles, and riding that out beats telling someone to try again.
 const RETRY_DELAYS_MS = [400, 1200, 2500];
 // fetch has no deadline of its own: without this a stalled request leaves the
-// screen waiting forever, which is exactly how a stuck "Signing in…" happens
-const REQUEST_TIMEOUT_MS = 12000;
+// screen waiting forever, which is exactly how a stuck "Signing in…" happens.
+// Generous on purpose — a cold Apps Script can legitimately take many seconds,
+// and killing a slow-but-working request is worse than waiting for it. This is
+// here to rule out "forever", not to enforce speed.
+const REQUEST_TIMEOUT_MS = 25000;
+// If the first attempt already waited 25 seconds, the script has had plenty of
+// time to wake up: the retry gets a short leash so a genuine stall is reported
+// in about half a minute instead of nearly one.
+const RETRY_TIMEOUT_MS = 10000;
 
-async function fetchWithTimeout(target, init) {
+async function fetchWithTimeout(target, init, timeoutMs) {
   if (typeof AbortController === 'undefined') return fetch(target, init);
   const controller = new AbortController();
-  const timer = setTimeout(function() { controller.abort(); }, REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(function() { controller.abort(); }, timeoutMs || REQUEST_TIMEOUT_MS);
   try {
     return await fetch(target, Object.assign({}, init || {}, { signal: controller.signal }));
   } catch(e) {
@@ -1113,10 +1120,12 @@ async function apiRead(action, data) {
 
   const started = Date.now();
   let lastError;
+  let timedOutBefore = false;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt) await wait(RETRY_DELAYS_MS[attempt - 1]);
     try {
-      const res = await fetchWithTimeout(target, init);
+      const res = await fetchWithTimeout(target, init,
+        timedOutBefore ? RETRY_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
       if (res.ok) {
         const json = await res.json();
         // every call is a second or two of Apps Script, so make it measurable
@@ -1136,8 +1145,13 @@ async function apiRead(action, data) {
     } catch(e) {
       if (e.payload) throw e;
       lastError = e;
-      // retrying a stall means waiting out the whole timeout again
-      if (e.timedOut) break;
+      if (e.timedOut) {
+        // One more go: a stall is usually the script waking up, and the second
+        // attempt hits it warm. Beyond that, waiting out the timeout again only
+        // makes the failure slower to report.
+        if (timedOutBefore) break;
+        timedOutBefore = true;
+      }
       console.warn('[credix-ponto] ' + action + ' failed — retrying', e);
     }
   }

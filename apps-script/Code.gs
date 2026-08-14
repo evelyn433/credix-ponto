@@ -61,7 +61,13 @@ function handleRequest(e) {
   try {
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = getRecordSheet_(ss);
+    // Opening the Records sheet costs a read, and half the actions never touch
+    // it — getUsers, called on every page load, among them. Open it on demand.
+    let recordSheet = null;
+    const sheet = function () {
+      if (!recordSheet) recordSheet = getRecordSheet_(ss);
+      return recordSheet;
+    };
 
     // ── REGISTROS ──────────────────────────────────────────
     // Ler exige senha válida. A página é pública e o endereço do backend está
@@ -71,28 +77,28 @@ function handleRequest(e) {
       if (!authUser_(readUsers_(ss), body)) {
         return json_({ success: false, authRequired: true, error: "Sign in required to read the records." });
       }
-      return json_({ success: true, records: readRecords_(sheet) });
+      return json_({ success: true, records: readRecords_(sheet()) });
     }
 
     if (action === "addRecord") {
       const rec = body.record || {};
       if (!rec.id) return json_({ success: false, error: "Record without id" });
-      sheet.appendRow(recordToRow_(rec));
+      sheet().appendRow(recordToRow_(rec));
       return json_({ success: true });
     }
 
     if (action === "updateRecord") {
       const rec = body.record || {};
-      const rowIndex = findRowById_(sheet, rec.id);
+      const rowIndex = findRowById_(sheet(), rec.id);
       if (rowIndex === -1) return json_({ success: false, error: "Record not found" });
-      sheet.getRange(rowIndex, 1, 1, RECORD_COLUMNS.length).setValues([recordToRow_(rec)]);
+      sheet().getRange(rowIndex, 1, 1, RECORD_COLUMNS.length).setValues([recordToRow_(rec)]);
       return json_({ success: true });
     }
 
     if (action === "deleteRecord") {
-      const rowIndex = findRowById_(sheet, body.id);
+      const rowIndex = findRowById_(sheet(), body.id);
       if (rowIndex === -1) return json_({ success: false, error: "Record not found" });
-      sheet.deleteRow(rowIndex);
+      sheet().deleteRow(rowIndex);
       return json_({ success: true });
     }
 
@@ -127,7 +133,7 @@ function handleRequest(e) {
       const targetId = String(req.targetId || "");
       if (targetId) {
         // só faz sentido alterar uma batida que existe e é da própria pessoa
-        const target = findRecordById_(sheet, targetId);
+        const target = findRecordById_(sheet(), targetId);
         if (!target) return json_({ success: false, error: "The punch to change no longer exists." });
         if (String(target.user) !== me.key) {
           return json_({ success: false, error: "That punch belongs to someone else." });
@@ -163,18 +169,18 @@ function handleRequest(e) {
 
       if (decision === "approve") {
         if (req.action === "edit") {
-          const rowIndex = findRowById_(sheet, req.targetId);
+          const rowIndex = findRowById_(sheet(), req.targetId);
           if (rowIndex === -1) {
             return json_({ success: false, error: "The punch to change no longer exists." });
           }
-          const current = findRecordById_(sheet, req.targetId);
-          sheet.getRange(rowIndex, 1, 1, RECORD_COLUMNS.length).setValues([recordToRow_({
+          const current = findRecordById_(sheet(), req.targetId);
+          sheet().getRange(rowIndex, 1, 1, RECORD_COLUMNS.length).setValues([recordToRow_({
             id: current.id, user: current.user, name: current.name,
             type: req.type, date: req.date, time: req.time,
             notes: current.notes, timestamp: current.timestamp
           })]);
         } else {
-          sheet.appendRow(recordToRow_({
+          sheet().appendRow(recordToRow_({
             id: req.id, user: req.user, name: req.name,
             type: req.type, date: req.date, time: req.time,
             notes: "Correction — " + req.reason,
@@ -246,7 +252,7 @@ function handleRequest(e) {
       return json_({
         success: true,
         user: { key: user.key, name: user.name, admin: user.admin, hasWord: !!user.wordHash },
-        records: readRecords_(sheet),
+        records: readRecords_(sheet()),
         requests: user.admin ? requests : requests.filter(r => r.user === user.key)
       });
     }
@@ -521,8 +527,17 @@ function cloneUser_(u) {
 // aba Settings é esvaziada — senão, com dois admins, o segundo herdaria a mesma
 // senha na leitura seguinte.
 function migrateLegacySecret_(ss, users) {
+  // This runs once in the life of the spreadsheet, but it was reading the
+  // Settings sheet on every single request that looked at a user — a wasted
+  // read on every login. A script property answers in microseconds.
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty("legacyMigrated") === "1") return users;
+
   const legacy = readSettings_(ss);
-  if (!legacy.pwdHash) return users;
+  if (!legacy.pwdHash) {
+    props.setProperty("legacyMigrated", "1");
+    return users;
+  }
 
   let target = null;
   for (let i = 0; i < users.length; i++) {
@@ -534,6 +549,7 @@ function migrateLegacySecret_(ss, users) {
     writeUsers_(ss, users);
   }
   clearLegacySecret_(ss);
+  props.setProperty("legacyMigrated", "1");
   return users;
 }
 
