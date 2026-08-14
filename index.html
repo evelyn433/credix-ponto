@@ -106,6 +106,7 @@ body {
   box-shadow: 0 0 0 3px var(--green-dim);
 }
 .field select option { background: var(--surface2); }
+.field select:disabled { opacity: 0.6; cursor: wait; }
 
 .btn-login {
   width: 100%;
@@ -1146,9 +1147,13 @@ const DEFAULT_USERS = {
 let USERS = {};
 let ALL_RECORDS = [];
 let currentUser = null;
-// false when getUsers failed: USERS is then a guess, with no idea who has a
-// password, so the login screen must say so instead of offering first access
+// usersRemote: we actually reached the backend this session.
+// rosterKnown: USERS holds a real roster — from the backend, or from the cache,
+// which is only ever written from a backend response. When it is false, USERS is
+// the hardcoded fallback and nothing about it can be trusted: not who exists,
+// and not who still needs a password.
 let usersRemote = false;
+let rosterKnown = false;
 
 function isAdmin(key) { return !!(USERS[key] && USERS[key].admin); }
 
@@ -1178,6 +1183,7 @@ function loadCachedUsers() {
     const at = Number(parsed.at || 0);
     if (!users || !Object.keys(users).length) return '';
     USERS = users;
+    rosterKnown = true;
     return (Date.now() - at < USERS_CACHE_TTL_MS) ? 'fresh' : 'stale';
   } catch(e) { return ''; }
 }
@@ -1197,6 +1203,7 @@ async function loadUsers() {
         };
       });
       usersRemote = true;
+      rosterKnown = true;
       usersLoadedAt = Date.now();
       cacheUsers();
       return true;
@@ -1204,7 +1211,7 @@ async function loadUsers() {
   } catch(e) {}
   usersRemote = false;
   if (!Object.keys(USERS).length) USERS = Object.assign({}, DEFAULT_USERS);
-  return false;
+  return false;   // rosterKnown deliberately untouched: a cache hit still counts
 }
 
 // Paints from the copy we have, then refreshes it if stale and paints again.
@@ -2504,9 +2511,9 @@ function validateNewPassword(newPwd, confirmPwd) {
 function togglePasswordField() {
   const key = document.getElementById('login-user').value;
   const user = USERS[key];
-  const known = !!user;
+  const known = !!user && rosterKnown;
   // never offer first access on a guessed roster — doLogin reports the outage
-  const needsSetup = known && usersRemote && !user.hasPassword;
+  const needsSetup = known && !user.hasPassword;
 
   document.getElementById('password-field').style.display = (known && !needsSetup) ? 'block' : 'none';
   document.getElementById('create-pwd-section').style.display = needsSetup ? 'block' : 'none';
@@ -2526,9 +2533,22 @@ async function doLogin() {
   const err = document.getElementById('login-error');
   if (!key) { err.textContent = 'Please select your name.'; return; }
 
-  // No getUsers here: the roster is already in hand (cached or freshly loaded),
-  // and the backend validates against the sheet anyway — it answers
-  // needsPassword when this view is stale. One less round trip per login.
+  // Normally the roster is already in hand — cached or freshly loaded — and no
+  // getUsers is spent here. But the select carries a hardcoded fallback list, so
+  // on a first ever visit someone can pick a name while the real roster is still
+  // in flight. Fetch once before concluding anything about them.
+  if (!rosterKnown) {
+    setLoginBusy(true, 'Loading…');
+    await loadUsers();
+    setLoginBusy(false);
+    refreshDropdowns();
+    document.getElementById('login-user').value = key;
+    togglePasswordField();
+  }
+  if (!rosterKnown) {
+    err.textContent = 'Could not reach the spreadsheet — check your connection and try again.';
+    return;
+  }
   if (!USERS[key]) { err.textContent = 'This collaborator no longer exists.'; togglePasswordField(); return; }
 
   // First access: create the password before entering.
@@ -2750,6 +2770,11 @@ async function adminResetPassword(key) {
   if (cached) {
     refreshDropdowns();
     togglePasswordField();
+  } else {
+    // Nothing cached: the select still shows the hardcoded fallback names, which
+    // is how someone came to pick a name that the app did not know yet. Hold the
+    // screen until the real roster arrives.
+    setLoginLoading(true);
   }
   // A fetch here would be competing with the login POST for the same Apps
   // Script instance, which is the slowest moment to spend a call. With a recent
@@ -2761,9 +2786,24 @@ async function adminResetPassword(key) {
     const selected = document.getElementById('login-user').value;
     refreshDropdowns();
     document.getElementById('login-user').value = selected;
+    setLoginLoading(false);
     togglePasswordField();
   });
 })();
+
+function setLoginLoading(loading) {
+  const sel = document.getElementById('login-user');
+  const btn = document.getElementById('login-btn');
+  if (!sel || !btn) return;
+  sel.disabled = loading;
+  btn.disabled = loading;
+  if (loading) {
+    sel.innerHTML = '<option value="">Loading names…</option>';
+    btn.textContent = 'Loading…';
+  } else if (btn.textContent === 'Loading…') {
+    btn.textContent = 'Enter';
+  }
+}
 
 
 // The document link is offered for every occurrence type: a medical note, but
