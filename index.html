@@ -1073,7 +1073,30 @@ const API_URL = "https://script.google.com/macros/s/AKfycbybem_4w5ogS6qglVgaqKCm
 // while the next one succeeds, especially in the minutes after a redeploy.
 // Reads are safe to repeat, so they retry instead of failing the whole screen.
 // Writes are NOT retried here: repeating addRecord would punch twice.
-const RETRY_DELAYS_MS = [400, 1200];
+// Four attempts over about four seconds. The endpoint returns the odd 404 while
+// a redeploy settles, and riding that out beats telling someone to try again.
+const RETRY_DELAYS_MS = [400, 1200, 2500];
+// fetch has no deadline of its own: without this a stalled request leaves the
+// screen waiting forever, which is exactly how a stuck "Signing in…" happens
+const REQUEST_TIMEOUT_MS = 12000;
+
+async function fetchWithTimeout(target, init) {
+  if (typeof AbortController === 'undefined') return fetch(target, init);
+  const controller = new AbortController();
+  const timer = setTimeout(function() { controller.abort(); }, REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(target, Object.assign({}, init || {}, { signal: controller.signal }));
+  } catch(e) {
+    if (e && e.name === 'AbortError') {
+      const timeout = new Error('the spreadsheet took too long to answer');
+      timeout.timedOut = true;   // a real stall, not a transient glitch: do not retry
+      throw timeout;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function isRetriable(status) {
   return status === 404 || status === 429 || status >= 500;
@@ -1093,7 +1116,7 @@ async function apiRead(action, data) {
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     if (attempt) await wait(RETRY_DELAYS_MS[attempt - 1]);
     try {
-      const res = await fetch(target, init);
+      const res = await fetchWithTimeout(target, init);
       if (res.ok) {
         const json = await res.json();
         // every call is a second or two of Apps Script, so make it measurable
@@ -1112,7 +1135,9 @@ async function apiRead(action, data) {
       console.warn('[credix-ponto] ' + action + ' HTTP ' + res.status + ' — retrying');
     } catch(e) {
       if (e.payload) throw e;
-      lastError = e;  // network failure, also worth a retry
+      lastError = e;
+      // retrying a stall means waiting out the whole timeout again
+      if (e.timedOut) break;
       console.warn('[credix-ponto] ' + action + ' failed — retrying', e);
     }
   }
@@ -1123,7 +1148,7 @@ function apiGet(action) { return apiRead(action); }
 
 async function apiPost(action, data) {
   const started = Date.now();
-  const res = await fetch(API_URL, {
+  const res = await fetchWithTimeout(API_URL, {
     method: 'POST',
     body: JSON.stringify({ action, ...data })
   });
@@ -2528,7 +2553,22 @@ function togglePasswordField() {
   }
 }
 
+// Wrapper so the button can never stay stuck: whatever happens inside — an
+// unforeseen exception included — the busy state is released and the reason is
+// shown, instead of the screen sitting on "Signing in…" with nothing to go on.
 async function doLogin() {
+  try {
+    await attemptLogin();
+  } catch(e) {
+    console.error('[credix-ponto] sign in failed unexpectedly:', e);
+    document.getElementById('login-error').textContent =
+      'Something went wrong signing in — ' + (e && e.message ? e.message : 'please try again.');
+  } finally {
+    setLoginBusy(false);
+  }
+}
+
+async function attemptLogin() {
   const key = document.getElementById('login-user').value;
   const err = document.getElementById('login-error');
   if (!key) { err.textContent = 'Please select your name.'; return; }
