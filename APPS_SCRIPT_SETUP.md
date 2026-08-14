@@ -113,6 +113,12 @@ Regras conferidas no servidor:
 - se a batida a alterar foi apagada no meio do caminho, a aprovação falha e o
   pedido continua pendente, em vez de gravar algo errado
 
+Ao aprovar, a justificativa é gravada **na própria batida**, na coluna `notes`,
+nos dois tipos de pedido — se a batida já tinha uma observação ou um link, a
+justificativa é acrescentada depois, sem apagar o que estava lá. Antes só a
+adição fazia isso, e uma alteração aprovada aparecia sem explicação em toda tela
+que mostra a batida.
+
 A linha do pedido nunca é apagada: ela é o histórico de quem pediu, por quê, e
 quem aprovou.
 

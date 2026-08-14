@@ -177,13 +177,18 @@ function handleRequest(e) {
           sheet().getRange(rowIndex, 1, 1, RECORD_COLUMNS.length).setValues([recordToRow_({
             id: current.id, user: current.user, name: current.name,
             type: req.type, date: req.date, time: req.time,
-            notes: current.notes, timestamp: current.timestamp
+            // A justificativa tem de ficar na própria batida, igual acontece
+            // quando o pedido é de adição. Antes ela só ficava na aba Requests,
+            // então uma alteração aprovada aparecia sem explicação em todo lugar
+            // onde a batida é mostrada — enquanto uma adição aparecia com ela.
+            notes: withReason_(current.notes, req.reason),
+            timestamp: current.timestamp
           })]);
         } else {
           sheet().appendRow(recordToRow_({
             id: req.id, user: req.user, name: req.name,
             type: req.type, date: req.date, time: req.time,
-            notes: "Correction — " + req.reason,
+            notes: withReason_("", req.reason),
             timestamp: String(body.reviewedAt || req.createdAt || "")
           }));
         }
@@ -327,6 +332,14 @@ function authorize_(users, user, body) {
   if (body.wordHash && user.wordHash && String(body.wordHash) === user.wordHash) return true;
   if (isAdminProof_(users, body)) return true;
   return "Current password, security word or admin password required.";
+}
+
+// Anexa a justificativa da correção ao que a batida já tinha — um link do Drive
+// ou uma observação não podem ser perdidos para dar lugar a ela.
+function withReason_(existing, reason) {
+  const note = "Correction — " + String(reason == null ? "" : reason).trim();
+  const before = String(existing == null ? "" : existing).trim();
+  return before ? before + " · " + note : note;
 }
 
 // Quem é a pessoa da requisição, conferindo a senha aqui no servidor.
