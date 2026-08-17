@@ -10,7 +10,7 @@ que conversa com ela é um Apps Script publicado como Web App.
 | `Records` | um registro por linha — batida de ponto ou ocorrência |
 | ↳ | numa ocorrência, a coluna `time` guarda a janela coberta (`09:00:00-10:00:00`) ou fica vazia para o dia inteiro |
 | `Users` | colaboradores, quem é admin, e o hash da senha e da palavra de segurança de cada um |
-| `Requests` | pedidos de correção de ponto, com quem pediu, o motivo e quem aprovou |
+| `Requests` | pedidos pendentes — correção de ponto ou ocorrência com horário — com quem pediu, o motivo, o link do documento e quem aprovou |
 | `Settings` | legado, esvaziada na migração — antes guardava a senha única do admin |
 
 As abas são criadas automaticamente na primeira vez que forem necessárias.
@@ -72,9 +72,9 @@ acesso.
 | `setPassword` | POST | grava uma senha nova, exigindo prova |
 | `setSecurityWord` | POST | grava a palavra de segurança, exigindo a senha atual |
 | `resetPassword` | POST | admin zera a senha de alguém |
-| `getRequests` | POST | pedidos de correção — os seus, ou todos se for admin |
-| `createRequest` | POST | abre um pedido, só para si mesmo e com motivo obrigatório |
-| `reviewRequest` | POST | admin aprova ou rejeita; aprovar é o que grava a batida |
+| `getRequests` | POST | pedidos pendentes — os seus, ou todos se for admin |
+| `createRequest` | POST | abre um pedido (correção ou ocorrência com horas), só para si mesmo e com motivo obrigatório |
+| `reviewRequest` | POST | admin aprova ou rejeita; aprovar é o que grava o registro |
 
 `getSettings` e `saveSettings` foram removidas de propósito: eram a senha única
 do admin, e uma aba com o código antigo em cache leria "nenhuma senha" e
@@ -100,10 +100,12 @@ valor como comprovação. Ele abre um **pedido**, que fica na aba `Requests` e n
 entra em nenhum cálculo de horas. Só quando o admin aprova é que este backend
 grava a batida em `Records`.
 
-Dois tipos de pedido, decididos automaticamente pela tela:
+Três tipos de pedido, decididos automaticamente pela tela:
 
 - **adicionar** — não existe batida daquele tipo naquele dia (esqueceu de bater)
 - **alterar** — já existe, e o pedido carrega o `targetId` dela
+- **ocorrência** — uma ocorrência com janela de horas (veja a seção seguinte).
+  Não mexe em batida nenhuma, então nunca tem `targetId`
 
 Regras conferidas no servidor:
 
@@ -141,6 +143,22 @@ esse dia simplesmente não contava.
 
 A janela vive na coluna `time` como texto, de propósito: não precisou de coluna
 nova nem de mudança na planilha.
+
+### Quem passa pelo admin
+
+A diferença de cálculo é o que decide o caminho: **o que credita horas passa pelo
+admin, o que é neutro registra direto.**
+
+- **dia inteiro** → gravado na hora, em `Records`. Não credita nada, então não há
+  o que aprovar
+- **com janela** → vira um pedido em `Requests`, com a justificativa obrigatória e
+  o link do documento. A planilha de ponto só é escrita quando o admin aprova —
+  igual a uma correção de batida
+
+Num intervalo de datas é um pedido por dia, para o admin poder aprovar a segunda
+e recusar a terça. E a ocorrência aprovada é gravada exatamente como a registrada
+direto — mesma ordem de `link` e `justificativa` na coluna `notes` — senão o mesmo
+atestado apareceria diferente dependendo do caminho que fez.
 
 ## Custo de cada chamada
 

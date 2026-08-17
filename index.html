@@ -716,9 +716,10 @@ tr:hover td { background: var(--surface2); }
             <div id="today-log"><div class="empty-log">No records yet today.</div></div>
           </div>
           <div class="card">
-            <div class="card-title">Punch Corrections</div>
+            <div class="card-title">My Requests</div>
             <div style="margin-bottom:12px; font-size:12px; color:var(--text2); line-height:1.6;">
               Forgot a punch, or clocked the wrong time? Send a correction — it applies once the admin approves.
+              Occurrences with hours show up here too.
             </div>
             <button class="btn-correction" onclick="openCorrectionModal()">
               ✎ Request Correction
@@ -730,6 +731,7 @@ tr:hover td { background: var(--surface2); }
             <div class="card-title">Register Occurrence</div>
             <div style="margin-bottom:12px; font-size:12px; color:var(--text2); line-height:1.6;">
               Register absences, holidays or time off for any date — past or future.
+              A whole day is registered right away; a few hours go to the admin first, since they credit your balance.
             </div>
             <button class="btn-occurrence" onclick="openOccurrenceModal()">
               📋 Register Occurrence
@@ -975,12 +977,12 @@ tr:hover td { background: var(--surface2); }
       </div>
     </div>
     <div class="modal-field">
-      <label>Notes <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
+      <label id="occ-notes-label">Notes <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
       <input type="text" id="occ-notes" placeholder="Additional notes...">
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('occurrence-modal')">Cancel</button>
-      <button class="btn btn-green" onclick="saveOccurrence()">Save</button>
+      <button class="btn btn-green" id="occ-submit" onclick="saveOccurrence()">Save</button>
     </div>
   </div>
 </div>
@@ -1811,20 +1813,44 @@ function openOccurrenceModal() {
 }
 
 // Spells out the consequence, because "whole day" and "two hours of it" affect
-// the balance in completely different ways.
+// the balance in completely different ways — and only one of them needs the
+// admin, so the button has to say which is about to happen.
 function previewOccurrence() {
   const from = document.getElementById('occ-time-from').value;
   const to = document.getElementById('occ-time-to').value;
   const hint = document.getElementById('occ-hours-hint');
+  const w = (from && to) ? parseWindow(formatWindow(from, to)) : null;
+  setOccurrenceMode(!!w);
+
   if (!from && !to) {
-    hint.textContent = '🗓 Whole day — the day gets no target, so it neither owes nor earns hours.';
+    hint.textContent = '🗓 Whole day — the day gets no target, so it neither owes nor earns hours.'
+      + ' Registered right away.';
     return;
   }
   if (!from || !to) { hint.textContent = '⚠️ Fill both times, or leave both blank for the whole day.'; return; }
-  const w = parseWindow(formatWindow(from, to));
   hint.textContent = w
     ? '⏱ ' + formatDuration(w.seconds) + ' counted as worked — the rest of the day still counts normally.'
+      + ' Goes to the admin for approval first.'
     : '⚠️ The end time has to be after the start.';
+}
+
+// Hours credit the balance, so they go through the admin — same rule as a punch
+// correction. A whole day credits nothing, so it stays direct.
+function setOccurrenceMode(windowed) {
+  const label = document.getElementById('occ-notes-label');
+  const notes = document.getElementById('occ-notes');
+  const btn = document.getElementById('occ-submit');
+  if (!label || !notes || !btn) return;
+  if (windowed) {
+    label.innerHTML = 'Justification';
+    notes.placeholder = 'e.g. medical appointment, note attached';
+    btn.textContent = 'Send for approval';
+  } else {
+    label.innerHTML = 'Notes <span style="color:var(--text3);font-weight:400;'
+      + 'text-transform:none;font-size:10px;">— optional</span>';
+    notes.placeholder = 'Additional notes...';
+    btn.textContent = 'Save';
+  }
 }
 
 // Called after occurrence is saved — check if today has clock in without clock out
@@ -1901,6 +1927,14 @@ async function saveOccurrence() {
     window = formatWindow(fromRaw, toRaw);
   }
 
+  // A window credits hours to the balance, so it needs the admin's approval and
+  // a reason he can read — exactly like a punch correction. A whole day credits
+  // nothing, so it keeps registering directly.
+  if (window && !notes) {
+    showToast('Say why — the admin needs the context to approve the hours.', 'error');
+    return;
+  }
+
   const start = new Date(startRaw + 'T00:00:00');
   const end = endRaw ? new Date(endRaw + 'T00:00:00') : start;
 
@@ -1914,6 +1948,8 @@ async function saveOccurrence() {
     cur.setDate(cur.getDate() + 1);
   }
 
+  if (window) { await requestOccurrence(type, dates, window, drive, notes); return; }
+
   showToast('Saving ' + dates.length + ' day(s)...', 'success');
 
   let saved = 0;
@@ -1922,8 +1958,8 @@ async function saveOccurrence() {
       const rec = {
         id: genId(), user: currentUser, name: USERS[currentUser].name,
         type, date: d.toLocaleDateString('en-GB'),
-        // the window, or blank for the whole day
-        time: window,
+        // always blank here: a window went through requestOccurrence above
+        time: '',
         // both, when both were filled — this used to keep only the link
         notes: [drive, notes].filter(Boolean).join(' '),
         timestamp: new Date().toISOString()
@@ -1946,6 +1982,49 @@ async function saveOccurrence() {
 
   // Check if partial day prompt is needed
   checkPartialDay(type, dates);
+}
+
+// The hours version of an occurrence: nothing is written to the timesheet here.
+// One request per day, so the admin can approve Monday and refuse Tuesday.
+// No partial-day prompt either — a window means the person kept working.
+async function requestOccurrence(type, dates, window, drive, notes) {
+  if (!requestsAvailable) {
+    showToast('⚠️ Hours occurrences need the updated Apps Script — ask the admin.', 'error');
+    return;
+  }
+  const btn = document.getElementById('occ-submit');
+  btn.disabled = true;
+  showToast('Sending ' + dates.length + ' day(s) for approval...', 'success');
+
+  let sent = 0;
+  try {
+    for (const d of dates) {
+      await apiPost('createRequest', { user: currentUser, pwdHash: sessionPwdHash, request: {
+        id: genId(), user: currentUser, action: 'occurrence', targetId: '',
+        type: type, date: d.toLocaleDateString('en-GB'), time: window,
+        reason: notes, doc: drive, createdAt: new Date().toISOString()
+      }});
+      sent++;
+    }
+  } catch(e) {
+    btn.disabled = false;
+    // An Apps Script that predates this only knows punch requests, and says so
+    // by refusing the type. Naming the cause beats "Invalid punch type."
+    const msg = /invalid punch type/i.test(e.message || '')
+      ? 'hours occurrences need the updated Apps Script — ask the admin.'
+      : (e.message || 'check your connection.');
+    showToast('❌ Sent ' + sent + ' of ' + dates.length + ' day(s) — ' + msg, 'error');
+    return;
+  }
+
+  btn.disabled = false;
+  closeModal('occurrence-modal');
+  await loadRequests(true);
+  renderMyCorrections();
+  const w = parseWindow(window);
+  showToast(dates.length === 1
+    ? '✅ ' + type + ' sent for approval — ' + shortWindow(w)
+    : '✅ ' + type + ' sent for approval for ' + dates.length + ' days', 'success');
 }
 
 // ═══════════════════════════════════════════════════
@@ -1971,7 +2050,8 @@ function adoptRequests(list) {
       id: String(r.id || ''), user: String(r.user || ''), name: String(r.name || ''),
       action: String(r.action || 'add'), targetId: String(r.targetId || ''),
       type: String(r.type || ''), date: formatSheetDate(r.date), time: formatSheetTime(r.time),
-      reason: String(r.reason || ''), status: String(r.status || 'pending'),
+      reason: String(r.reason || ''), doc: String(r.doc || ''),
+      status: String(r.status || 'pending'),
       reviewedBy: String(r.reviewedBy || '')
     };
   });
@@ -2075,7 +2155,18 @@ async function submitCorrection() {
   showToast('✅ Sent for approval.', 'success');
 }
 
+function shortWindow(w) {
+  return w ? w.from.slice(0, 5) + '–' + w.to.slice(0, 5) : '';
+}
+
 function correctionLine(r) {
+  // Two kinds of request share this line. An occurrence asks for hours to be
+  // credited, so it has to show the window and how much that is worth.
+  if (r.action === 'occurrence') {
+    const w = parseWindow(r.time);
+    return '<b>' + escapeHtml(r.type) + '</b> on ' + r.date
+      + (w ? ' → <b>' + shortWindow(w) + '</b> (' + formatDuration(w.seconds) + ' credited)' : '');
+  }
   const what = r.action === 'edit' ? 'change' : 'add';
   return '<b>' + escapeHtml(r.type) + '</b> ' + what + ' on ' + r.date + ' → <b>' + formatTime(r.time) + '</b>';
 }
@@ -2084,11 +2175,11 @@ function renderMyCorrections() {
   const el = document.getElementById('my-corrections');
   if (!el) return;
   if (!requestsAvailable) {
-    el.innerHTML = '<div class="empty-log">Corrections need the updated Apps Script.</div>';
+    el.innerHTML = '<div class="empty-log">Requests need the updated Apps Script.</div>';
     return;
   }
   const mine = myRequests().slice(0, 6);
-  if (!mine.length) { el.innerHTML = '<div class="empty-log">No corrections requested.</div>'; return; }
+  if (!mine.length) { el.innerHTML = '<div class="empty-log">Nothing requested yet.</div>'; return; }
   el.innerHTML = mine.map(function(r) {
     return '<div class="corr-row"><div class="corr-what">' + correctionLine(r) + '</div>'
       + '<span class="status-pill ' + r.status + '">' + r.status + '</span></div>';
@@ -2108,26 +2199,29 @@ function renderApprovals() {
   const pending = pendingRequests();
 
   if (!requestsAvailable) {
-    title.textContent = 'Pending Corrections';
-    body.innerHTML = '<div class="empty-log">⚠️ Corrections need the updated Apps Script —'
+    title.textContent = 'Pending Approvals';
+    body.innerHTML = '<div class="empty-log">⚠️ Approvals need the updated Apps Script —'
       + ' paste the new Code.gs and redeploy. Everything else keeps working.</div>';
     return;
   }
   if (!pending.length) {
-    title.textContent = 'Pending Corrections';
+    title.textContent = 'Pending Approvals';
     body.innerHTML = '<div class="empty-log">Nothing waiting for approval.</div>';
     return;
   }
 
-  title.innerHTML = 'Pending Corrections<span class="count-badge">' + pending.length + '</span>';
+  title.innerHTML = 'Pending Approvals<span class="count-badge">' + pending.length + '</span>';
   body.innerHTML = pending.map(function(r) {
     const current = r.action === 'edit'
       ? (getRecords().find(x => x.id === r.targetId) || null)
       : null;
     const from = current ? ' (now <b>' + formatTime(current.time) + '</b>)' : '';
+    // The document is the whole point of a medical leave, so it has to be one
+    // click away — the admin cannot judge the hours without opening it.
+    const doc = r.doc ? '<br>' + notesCell(r.doc, 'document') : '';
     return '<div class="approval-row">'
       + '<div class="approval-info"><b>' + escapeHtml(r.name) + '</b> — ' + correctionLine(r) + from
-      + '<br><span class="approval-reason">“' + escapeHtml(r.reason) + '”</span></div>'
+      + '<br><span class="approval-reason">“' + escapeHtml(r.reason) + '”</span>' + doc + '</div>'
       + '<div class="approval-actions">'
       + '<button class="btn btn-green btn-sm approve-btn" data-id="' + escapeHtml(r.id) + '">✓ Approve</button>'
       + '<button class="btn btn-danger btn-sm reject-btn" data-id="' + escapeHtml(r.id) + '">✕ Reject</button>'
@@ -2145,7 +2239,8 @@ function renderApprovals() {
 async function reviewCorrection(id, decision) {
   const req = ALL_REQUESTS.find(r => r.id === id);
   if (!req) return;
-  if (decision === 'reject' && !confirm('Reject ' + req.name + '\u2019s correction?')) return;
+  const what = req.action === 'occurrence' ? 'occurrence' : 'correction';
+  if (decision === 'reject' && !confirm('Reject ' + req.name + '\u2019s ' + what + '?')) return;
 
   try {
     await apiPost('reviewRequest', {

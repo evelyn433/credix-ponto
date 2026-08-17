@@ -21,8 +21,22 @@ const USER_COLUMNS = ["key", "name", "admin", "pwdHash", "wordHash"];
 // aprovar, é este backend que grava a batida em Records — e a linha do pedido
 // permanece como histórico de quem pediu, por quê, e quem aprovou.
 const REQUEST_COLUMNS = ["id", "user", "name", "action", "targetId", "type", "date",
-                         "time", "reason", "status", "createdAt", "reviewedBy", "reviewedAt"];
+                         "time", "reason", "doc", "status", "createdAt", "reviewedBy", "reviewedAt"];
 const PUNCH_TYPES_BE = ["Clock In", "Lunch Out", "Lunch In", "Clock Out"];
+const OCCURRENCE_TYPES_BE = ["Medical Leave", "Holiday", "Day Off", "Vacation"];
+
+// Uma ocorrência de dia inteiro é neutra no saldo e é registrada direto. Uma com
+// janela de horário credita horas trabalhadas, então passa por aprovação — é da
+// mesma natureza de uma correção de batida.
+function parseWindowBE_(time) {
+  const m = String(time || "").match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)$/);
+  if (!m) return null;
+  const secs = function (t) {
+    const p = String(t).split(":");
+    return (parseInt(p[0], 10) || 0) * 3600 + (parseInt(p[1], 10) || 0) * 60 + (parseInt(p[2], 10) || 0);
+  };
+  return secs(m[2]) > secs(m[1]) ? { from: m[1], to: m[2] } : null;
+}
 
 const DEFAULT_USERS = [
   { key: "evelyn", name: "Evelyn", admin: false, pwdHash: "", wordHash: "" },
@@ -120,9 +134,6 @@ function handleRequest(e) {
       if (String(req.user || "") !== me.key) {
         return json_({ success: false, error: "You can only request corrections for yourself." });
       }
-      if (PUNCH_TYPES_BE.indexOf(String(req.type)) === -1) {
-        return json_({ success: false, error: "Invalid punch type." });
-      }
       if (!req.id || !req.date || !req.time) {
         return json_({ success: false, error: "Date and time are required." });
       }
@@ -130,21 +141,39 @@ function handleRequest(e) {
         return json_({ success: false, error: "A reason is required." });
       }
 
-      const targetId = String(req.targetId || "");
-      if (targetId) {
-        // só faz sentido alterar uma batida que existe e é da própria pessoa
-        const target = findRecordById_(sheet(), targetId);
-        if (!target) return json_({ success: false, error: "The punch to change no longer exists." });
-        if (String(target.user) !== me.key) {
-          return json_({ success: false, error: "That punch belongs to someone else." });
+      const isOccurrence = String(req.action || "") === "occurrence";
+      let targetId = "";
+
+      if (isOccurrence) {
+        if (OCCURRENCE_TYPES_BE.indexOf(String(req.type)) === -1) {
+          return json_({ success: false, error: "Invalid occurrence type." });
+        }
+        // só a de janela passa por aqui: a de dia inteiro é neutra e vai direto
+        if (!parseWindowBE_(req.time)) {
+          return json_({ success: false, error: "An occurrence request needs a valid time window." });
+        }
+      } else {
+        if (PUNCH_TYPES_BE.indexOf(String(req.type)) === -1) {
+          return json_({ success: false, error: "Invalid punch type." });
+        }
+        targetId = String(req.targetId || "");
+        if (targetId) {
+          // só faz sentido alterar uma batida que existe e é da própria pessoa
+          const target = findRecordById_(sheet(), targetId);
+          if (!target) return json_({ success: false, error: "The punch to change no longer exists." });
+          if (String(target.user) !== me.key) {
+            return json_({ success: false, error: "That punch belongs to someone else." });
+          }
         }
       }
 
       appendRequest_(ss, {
         id: String(req.id), user: me.key, name: me.name,
-        action: targetId ? "edit" : "add", targetId: targetId,
+        action: isOccurrence ? "occurrence" : (targetId ? "edit" : "add"),
+        targetId: targetId,
         type: String(req.type), date: String(req.date), time: String(req.time),
-        reason: String(req.reason).trim(), status: "pending",
+        reason: String(req.reason).trim(), doc: String(req.doc || "").trim(),
+        status: "pending",
         createdAt: String(req.createdAt || ""), reviewedBy: "", reviewedAt: ""
       });
       return json_({ success: true });
@@ -184,6 +213,15 @@ function handleRequest(e) {
             notes: withReason_(current.notes, req.reason),
             timestamp: current.timestamp
           })]);
+        } else if (req.action === "occurrence") {
+          // Igual ao que uma ocorrência registrada direto grava: o link do
+          // documento e a justificativa, na mesma ordem.
+          sheet().appendRow(recordToRow_({
+            id: req.id, user: req.user, name: req.name,
+            type: req.type, date: req.date, time: req.time,
+            notes: [req.doc, req.reason].filter(function (v) { return !!v; }).join(" "),
+            timestamp: String(body.reviewedAt || req.createdAt || "")
+          }));
         } else {
           sheet().appendRow(recordToRow_({
             id: req.id, user: req.user, name: req.name,
