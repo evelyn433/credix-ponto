@@ -8,6 +8,7 @@ que conversa com ela é um Apps Script publicado como Web App.
 | Aba | Conteúdo |
 |---|---|
 | `Records` | um registro por linha — batida de ponto ou ocorrência |
+| ↳ | numa ocorrência, a coluna `time` guarda a janela coberta (`09:00:00-10:00:00`) ou fica vazia para o dia inteiro |
 | `Users` | colaboradores, quem é admin, e o hash da senha e da palavra de segurança de cada um |
 | `Requests` | pedidos de correção de ponto, com quem pediu, o motivo e quem aprovou |
 | `Settings` | legado, esvaziada na migração — antes guardava a senha única do admin |
@@ -121,6 +122,25 @@ que mostra a batida.
 
 A linha do pedido nunca é apagada: ela é o histórico de quem pediu, por quê, e
 quem aprovou.
+
+## Ocorrência de dia inteiro x de algumas horas
+
+Uma ocorrência pode cobrir o dia todo ou só uma parte dele, e a diferença muda o
+cálculo do banco de horas:
+
+- **coluna `time` vazia** → dia inteiro. O dia não tem meta: não gera débito nem
+  crédito (feriado, férias, atestado de um dia)
+- **coluna `time` com uma janela** (`09:00:00-10:00:00`) → só aquelas horas são
+  justificadas. Elas contam como trabalhadas, e **o resto do dia continua
+  valendo a meta cheia**
+
+O caso que motivou isso: bateu às 10h em vez das 9h e justificou a hora com
+atestado. Trabalhou 7h48, tem 1h justificada, meta 8h48 — o dia fecha zerado, sem
+desconto. Antes, qualquer ocorrência no dia tirava o dia todo do saldo, então
+esse dia simplesmente não contava.
+
+A janela vive na coluna `time` como texto, de propósito: não precisou de coluna
+nova nem de mudança na planilha.
 
 ## Custo de cada chamada
 

@@ -790,7 +790,7 @@ tr:hover td { background: var(--surface2); }
           <table>
             <thead><tr>
               <th>Collaborator</th><th>Days Counted</th><th>Hours Worked</th>
-              <th>Expected</th><th>Balance</th><th>Not Counted</th>
+              <th>Justified</th><th>Expected</th><th>Balance</th><th>Not Counted</th>
             </tr></thead>
             <tbody id="report-person-body"></tbody>
           </table>
@@ -800,7 +800,7 @@ tr:hover td { background: var(--surface2); }
           <table>
             <thead><tr>
               <th>Collaborator</th><th>Date</th><th>In</th><th>Lunch</th><th>Out</th>
-              <th>Worked</th><th>Target</th><th>Balance</th>
+              <th>Worked</th><th>Justified</th><th>Target</th><th>Balance</th>
             </tr></thead>
             <tbody id="report-daily-body"></tbody>
           </table>
@@ -957,6 +957,15 @@ tr:hover td { background: var(--surface2); }
       <label>End Date <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— leave blank for single day</span></label>
       <input type="date" id="occ-date-end">
     </div>
+    <div class="modal-field">
+      <label>Hours Covered <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— leave blank for the whole day</span></label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="time" id="occ-time-from" step="60" style="flex:1" onchange="previewOccurrence()">
+        <span style="color:var(--text3);font-size:12px">→</span>
+        <input type="time" id="occ-time-to" step="60" style="flex:1" onchange="previewOccurrence()">
+      </div>
+      <div class="drive-hint" id="occ-hours-hint"></div>
+    </div>
     <div class="modal-field" id="drive-field">
       <label>Supporting Document <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— optional</span></label>
       <input type="url" id="occ-drive" placeholder="https://drive.google.com/...">
@@ -1027,7 +1036,7 @@ tr:hover td { background: var(--surface2); }
     </div>
     <div class="modal-field">
       <label>Type</label>
-      <select id="edit-type">
+      <select id="edit-type" onchange="toggleEditTimeTo()">
         <option value="Clock In">▶ Clock In</option>
         <option value="Lunch Out">🍽 Lunch Out</option>
         <option value="Lunch In">↩ Lunch In</option>
@@ -1043,8 +1052,12 @@ tr:hover td { background: var(--surface2); }
       <input type="date" id="edit-date">
     </div>
     <div class="modal-field">
-      <label>Time <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— leave blank for occurrences</span></label>
+      <label>Time <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— a punch needs one</span></label>
       <input type="time" id="edit-time" step="1">
+    </div>
+    <div class="modal-field" id="edit-time-to-field">
+      <label>Until <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;">— occurrences only: blank means the whole day</span></label>
+      <input type="time" id="edit-time-to" step="60">
     </div>
     <div class="modal-field">
       <label>Notes / Drive Link</label>
@@ -1765,9 +1778,14 @@ function renderToday() {
   const totalEl = document.getElementById('today-total');
   if (totalEl) {
     const secs = workedSeconds(recs);
+    const justified = recs.filter(r => !isPunchType(r.type))
+      .map(r => parseWindow(r.time)).filter(Boolean)
+      .reduce((sum, w) => sum + w.seconds, 0);
     const open = recs.filter(r => isPunchType(r.type)).length % 2 === 1;
-    totalEl.style.display = secs > 0 ? 'block' : 'none';
-    totalEl.textContent = '⏱ Worked today: ' + formatDuration(secs) + (open ? ' (still running)' : '');
+    totalEl.style.display = (secs > 0 || justified > 0) ? 'block' : 'none';
+    totalEl.textContent = '⏱ Worked today: ' + formatDuration(secs)
+      + (justified ? ' + ' + formatDuration(justified) + ' justified' : '')
+      + (open ? ' (still running)' : '');
   }
 
   if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
@@ -1784,9 +1802,29 @@ function renderToday() {
 function openOccurrenceModal() {
   document.getElementById('occ-date-start').value = localDateInput();
   document.getElementById('occ-date-end').value = '';
+  document.getElementById('occ-time-from').value = '';
+  document.getElementById('occ-time-to').value = '';
   document.getElementById('occ-drive').value = '';
   document.getElementById('occ-notes').value = '';
+  previewOccurrence();
   openModal('occurrence-modal');
+}
+
+// Spells out the consequence, because "whole day" and "two hours of it" affect
+// the balance in completely different ways.
+function previewOccurrence() {
+  const from = document.getElementById('occ-time-from').value;
+  const to = document.getElementById('occ-time-to').value;
+  const hint = document.getElementById('occ-hours-hint');
+  if (!from && !to) {
+    hint.textContent = '🗓 Whole day — the day gets no target, so it neither owes nor earns hours.';
+    return;
+  }
+  if (!from || !to) { hint.textContent = '⚠️ Fill both times, or leave both blank for the whole day.'; return; }
+  const w = parseWindow(formatWindow(from, to));
+  hint.textContent = w
+    ? '⏱ ' + formatDuration(w.seconds) + ' counted as worked — the rest of the day still counts normally.'
+    : '⚠️ The end time has to be after the start.';
 }
 
 // Called after occurrence is saved — check if today has clock in without clock out
@@ -1842,10 +1880,26 @@ async function saveOccurrence() {
   const type = document.getElementById('occ-type').value;
   const startRaw = document.getElementById('occ-date-start').value;
   const endRaw = document.getElementById('occ-date-end').value;
+  const fromRaw = document.getElementById('occ-time-from').value;
+  const toRaw = document.getElementById('occ-time-to').value;
   const drive = document.getElementById('occ-drive').value.trim();
   const notes = document.getElementById('occ-notes').value.trim();
 
   if (!startRaw) { showToast('Please select a start date.', 'error'); return; }
+
+  // Either both times or neither: half a window would silently become a whole day.
+  if (!!fromRaw !== !!toRaw) {
+    showToast('Fill both times, or leave both blank for the whole day.', 'error');
+    return;
+  }
+  let window = '';
+  if (fromRaw) {
+    if (!parseWindow(formatWindow(fromRaw, toRaw))) {
+      showToast('The end time has to be after the start.', 'error');
+      return;
+    }
+    window = formatWindow(fromRaw, toRaw);
+  }
 
   const start = new Date(startRaw + 'T00:00:00');
   const end = endRaw ? new Date(endRaw + 'T00:00:00') : start;
@@ -1868,8 +1922,10 @@ async function saveOccurrence() {
       const rec = {
         id: genId(), user: currentUser, name: USERS[currentUser].name,
         type, date: d.toLocaleDateString('en-GB'),
+        // the window, or blank for the whole day
+        time: window,
         // both, when both were filled — this used to keep only the link
-        time: '', notes: [drive, notes].filter(Boolean).join(' '),
+        notes: [drive, notes].filter(Boolean).join(' '),
         timestamp: new Date().toISOString()
       };
       await saveRecordRemote(rec);
@@ -2116,6 +2172,22 @@ async function reviewCorrection(id, decision) {
 // of lunch on top that is 9h48 on the clock, and 44h over a five day week.
 const DAILY_TARGET_SECONDS = 8 * 3600 + 48 * 60;
 
+// An occurrence covers either the whole day or a window of it. The window lives
+// in the time column as "HH:MM:SS-HH:MM:SS" — plain text the sheet keeps as it
+// is, which means no change to the spreadsheet's shape.
+function parseWindow(time) {
+  const m = String(time || '').match(/^(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,2}:\d{2}(?::\d{2})?)$/);
+  if (!m) return null;
+  const from = normalizeTime(m[1]);
+  const to = normalizeTime(m[2]);
+  const seconds = timeKey(to) - timeKey(from);
+  return seconds > 0 ? { from: from, to: to, seconds: seconds } : null;
+}
+
+function formatWindow(from, to) {
+  return normalizeTime(from) + '-' + normalizeTime(to);
+}
+
 // Collapses the punch list into one row per person per day.
 // A day only counts towards the balance when it is a plain, complete workday:
 //   - an odd number of punches means somebody forgot one, so the worked total
@@ -2145,9 +2217,18 @@ function summariseDays(recs) {
     day.incomplete = punches.length > 0 && punches.length % 2 === 1;
     day.hasOccurrence = day.occurrences.length > 0;
 
-    day.counts = punches.length > 0 && !day.incomplete && !day.hasOccurrence;
+    // A medical note covering 09:00→10:00 is time the person owes nothing for:
+    // it counts towards the day like worked time does. An occurrence with no
+    // window is the whole day off, and then the day has no target at all.
+    day.windows = day.occurrences.map(o => parseWindow(o.time)).filter(Boolean);
+    day.fullDayOff = day.occurrences.some(o => !parseWindow(o.time));
+    day.justified = day.windows.reduce((sum, w) => sum + w.seconds, 0);
+    day.credited = day.worked + day.justified;
+
+    day.counts = !day.fullDayOff && !day.incomplete
+      && (punches.length > 0 || day.justified > 0);
     day.target = day.counts ? DAILY_TARGET_SECONDS : 0;
-    day.balance = day.counts ? day.worked - day.target : 0;
+    day.balance = day.counts ? day.credited - day.target : 0;
     return day;
   }).sort(function(a, b) {
     return (dateKey(b.date) - dateKey(a.date)) || a.name.localeCompare(b.name);
@@ -2166,9 +2247,18 @@ function balanceCell(seconds) {
 
 function dayFlag(day) {
   if (day.incomplete) return '<span class="day-flag">missing punch</span>';
-  if (day.hasOccurrence) return '<span class="day-flag">' + escapeHtml(day.occurrences[0].type) + '</span>';
+  if (day.fullDayOff) return '<span class="day-flag">' + escapeHtml(fullDayType(day)) + '</span>';
+  if (day.hasOccurrence) {
+    return '<span class="day-flag" style="color:var(--blue);background:var(--blue-dim);'
+      + 'border-color:rgba(77,159,255,0.25)">' + escapeHtml(day.occurrences[0].type) + '</span>';
+  }
   if (!day.punches.length) return '<span class="day-flag">no punches</span>';
   return '';
+}
+
+function fullDayType(day) {
+  const full = day.occurrences.find(o => !parseWindow(o.time));
+  return full ? full.type : (day.occurrences[0] ? day.occurrences[0].type : '');
 }
 
 // ═══════════════════════════════════════════════════
@@ -2194,10 +2284,12 @@ function summarisePeople(days) {
   const byUser = {};
   days.forEach(function(d) {
     const p = byUser[d.user] = byUser[d.user] ||
-      { user: d.user, name: d.name, daysCounted: 0, worked: 0, expected: 0, balance: 0, skipped: 0 };
+      { user: d.user, name: d.name, daysCounted: 0, worked: 0, justified: 0,
+        expected: 0, balance: 0, skipped: 0 };
     if (d.counts) {
       p.daysCounted++;
       p.worked += d.worked;
+      p.justified += d.justified;
       p.expected += d.target;
       p.balance += d.balance;
     } else if (d.punches.length) {
@@ -2211,7 +2303,7 @@ function summarisePeople(days) {
 function renderPersonTable(people) {
   const tbody = document.getElementById('report-person-body');
   if (!people.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
     return;
   }
   tbody.innerHTML = people.map(function(p) {
@@ -2219,6 +2311,7 @@ function renderPersonTable(people) {
       + '<td><span style="font-weight:500">' + escapeHtml(p.name) + '</span></td>'
       + '<td>' + p.daysCounted + '</td>'
       + '<td>' + formatDuration(p.worked) + '</td>'
+      + '<td>' + (p.justified ? '<span style="color:var(--blue)">' + formatDuration(p.justified) + '</span>' : '—') + '</td>'
       + '<td>' + formatDuration(p.expected) + '</td>'
       + '<td>' + balanceCell(p.balance) + '</td>'
       + '<td>' + (p.skipped ? '<span class="day-flag">' + p.skipped + ' day(s)</span>' : '—') + '</td>'
@@ -2245,12 +2338,15 @@ function renderReport() {
   const skipped = days.filter(d => d.punches.length && !d.counts);
 
   const worked = counted.reduce((s, d) => s + d.worked, 0);
+  const justified = counted.reduce((s, d) => s + d.justified, 0);
   const balance = counted.reduce((s, d) => s + d.balance, 0);
   const occurrences = recs.filter(r => !isPunchType(r.type)).length;
 
   document.getElementById('report-stats').innerHTML =
     '<div class="stat-card"><div class="stat-value" style="color:var(--green)">' + formatDuration(worked) + '</div>'
-      + '<div class="stat-label">Hours Worked</div></div>'
+      + '<div class="stat-label">Hours Worked'
+      + (justified ? ' <span style="color:var(--blue)">+ ' + formatDuration(justified) + ' justified</span>' : '')
+      + '</div></div>'
     + '<div class="stat-card"><div class="stat-value ' + (balance >= 0 ? 'bal-pos' : 'bal-neg') + '">' + formatSigned(balance) + '</div>'
       + '<div class="stat-label">Time Balance</div></div>'
     + '<div class="stat-card"><div class="stat-value" style="color:var(--blue)">' + counted.length + '</div>'
@@ -2272,7 +2368,7 @@ function renderReport() {
 function renderDailyTable(days) {
   const tbody = document.getElementById('report-daily-body');
   if (!days.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
     return;
   }
   tbody.innerHTML = days.map(function(d) {
@@ -2286,6 +2382,7 @@ function renderDailyTable(days) {
       + '<td style="white-space:nowrap">' + lunch + '</td>'
       + '<td>' + formatTime(d.clockOut) + '</td>'
       + '<td>' + (d.punches.length ? formatDuration(d.worked) : '—') + '</td>'
+      + '<td>' + (d.justified ? '<span style="color:var(--blue)">' + formatDuration(d.justified) + '</span>' : '—') + '</td>'
       + '<td>' + (d.counts ? formatDuration(d.target) : '—') + '</td>'
       + '<td>' + (d.counts ? balanceCell(d.balance) : '—') + '</td>'
       + '</tr>';
@@ -2320,20 +2417,24 @@ function exportCSV() {
   let csv, kind;
   if (reportView === 'person') {
     const people = summarisePeople(summariseDays(recs));
-    csv = toCsv('Collaborator,Days Counted,Hours Worked,Expected,Balance,Days Not Counted',
-      people.map(p => [p.name, p.daysCounted, formatDuration(p.worked),
+    csv = toCsv('Collaborator,Days Counted,Hours Worked,Justified,Expected,Balance,Days Not Counted',
+      people.map(p => [p.name, p.daysCounted, formatDuration(p.worked), formatDuration(p.justified),
                        formatDuration(p.expected), formatSigned(p.balance), p.skipped]));
     kind = 'balance';
   } else if (reportView === 'daily') {
     const days = summariseDays(recs).slice().reverse();  // oldest first
-    csv = toCsv('Collaborator,Date,Clock In,Lunch Out,Lunch In,Clock Out,Worked,Target,Balance,Note',
+    csv = toCsv('Collaborator,Date,Clock In,Lunch Out,Lunch In,Clock Out,Worked,Justified,Target,Balance,Note',
       days.map(function(d) {
         return [d.name, d.date, d.clockIn, d.lunchOut, d.lunchIn, d.clockOut,
                 d.punches.length ? formatDuration(d.worked) : '',
+                d.justified ? formatDuration(d.justified) : '',
                 d.counts ? formatDuration(d.target) : '',
                 d.counts ? formatSigned(d.balance) : '',
                 d.incomplete ? 'missing punch'
-                  : d.hasOccurrence ? d.occurrences.map(o => o.type).join(' / ')
+                  : d.hasOccurrence ? d.occurrences.map(function(o) {
+                      const w = parseWindow(o.time);
+                      return o.type + (w ? ' ' + w.from + '-' + w.to : ' (full day)');
+                    }).join(' / ')
                   : ''];
       }));
     kind = 'daily';
@@ -2386,6 +2487,11 @@ function renderAdmin() {
   });
 }
 
+function toggleEditTimeTo() {
+  const isPunch = isPunchType(document.getElementById('edit-type').value);
+  document.getElementById('edit-time-to-field').style.display = isPunch ? 'none' : 'block';
+}
+
 function openEdit(id) {
   const rec = getRecords().find(r => r.id === id);
   if (!rec) return;
@@ -2396,8 +2502,13 @@ function openEdit(id) {
   // Convert date from DD/MM/YYYY to YYYY-MM-DD
   const parts = String(rec.date || '').split('/');
   document.getElementById('edit-date').value = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : '';
-  document.getElementById('edit-time').value = rec.time || '';
+  // A window cannot go in a time input, and leaving it out would have wiped it
+  // on save, so it is split across the two fields.
+  const win = parseWindow(rec.time);
+  document.getElementById('edit-time').value = win ? win.from : (rec.time || '');
+  document.getElementById('edit-time-to').value = win ? win.to : '';
   document.getElementById('edit-notes').value = rec.notes || '';
+  toggleEditTimeTo();
   openModal('edit-modal');
 }
 
@@ -2413,12 +2524,27 @@ async function saveEdit() {
   if (!dateRaw) { showToast('Please select a date.', 'error'); return; }
   if (isPunchType(type) && !time) { showToast('Punch records need a time.', 'error'); return; }
 
+  // An occurrence keeps its window: both times, or neither.
+  const timeTo = document.getElementById('edit-time-to').value;
+  let timeValue = normalizeTime(time);
+  if (!isPunchType(type) && (time || timeTo)) {
+    if (!time || !timeTo) {
+      showToast('Fill both times, or clear both for a whole-day occurrence.', 'error');
+      return;
+    }
+    if (!parseWindow(formatWindow(time, timeTo))) {
+      showToast('The end time has to be after the start.', 'error');
+      return;
+    }
+    timeValue = formatWindow(time, timeTo);
+  }
+
   const dateObj = new Date(dateRaw + 'T00:00:00');
   const date = dateObj.toLocaleDateString('en-GB');
 
   const existing = getRecords().find(r => r.id === id);
   if (!existing) return;
-  const updated = { ...existing, user: userKey, name: USERS[userKey].name, type, date, time: normalizeTime(time), notes };
+  const updated = { ...existing, user: userKey, name: USERS[userKey].name, type, date, time: timeValue, notes };
   try { await updateRecordRemote(updated); }
   catch(e) { showToast('❌ Change not saved — check your connection.', 'error'); return; }
   closeModal('edit-modal');
