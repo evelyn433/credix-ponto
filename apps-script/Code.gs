@@ -424,7 +424,44 @@ function getRequestSheet_(ss) {
     sh = ss.insertSheet("Requests");
     sh.appendRow(REQUEST_COLUMNS);
     sh.setFrozenRows(1);
+    requestHeaderChecked = true;
+    return sh;
   }
+  return healRequestHeader_(sh);
+}
+
+// A aba Requests nasceu sem a coluna `doc`. Ler é por nome de coluna, então o
+// cabeçalho antigo seria lido sem problema — mas gravar é por posição, e aí o
+// `doc` cairia na coluna do `status`: o pedido novo entraria sem status e nunca
+// apareceria como pendente para o admin. Então o cabeçalho é acertado antes,
+// remontando as linhas que já existem pelo nome da coluna delas.
+//
+// Confere o cabeçalho, não a planilha toda, e só uma vez por execução.
+let requestHeaderChecked = false;
+
+function healRequestHeader_(sh) {
+  if (requestHeaderChecked) return sh;
+  requestHeaderChecked = true;
+
+  const header = sh.getRange(1, 1, 1, REQUEST_COLUMNS.length).getValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  if (header.join("|") === REQUEST_COLUMNS.join("|")) return sh;
+
+  const rows = sh.getDataRange().getValues();
+  const old = rows.length ? rows[0].map(function (h) { return String(h).trim(); }) : [];
+  const body = rows.slice(1).filter(function (row) { return String(row[0]).trim() !== ""; });
+  const rebuilt = body.map(function (row) {
+    return REQUEST_COLUMNS.map(function (name) {
+      const i = old.indexOf(name);
+      return asText_(i > -1 && i < row.length ? String(row[i] || "").trim() : "");
+    });
+  });
+
+  sh.clear();
+  sh.appendRow(REQUEST_COLUMNS);
+  rebuilt.forEach(function (row) { sh.appendRow(row); });
+  sh.setFrozenRows(1);
+  Logger.log("Requests: cabeçalho atualizado, " + rebuilt.length + " pedido(s) remontado(s)");
   return sh;
 }
 

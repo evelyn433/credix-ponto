@@ -125,6 +125,13 @@ que mostra a batida.
 A linha do pedido nunca é apagada: ela é o histórico de quem pediu, por quê, e
 quem aprovou.
 
+A aba `Requests` nasceu sem a coluna `doc`, que guarda o link do documento. Ler é
+por nome de coluna, então o cabeçalho antigo seria lido sem problema — mas gravar
+é por posição, e o `doc` cairia na coluna do `status`: um pedido novo entraria sem
+status e nunca apareceria como pendente. Então o cabeçalho se conserta sozinho na
+primeira requisição, remontando as linhas que já existem pelo nome da coluna
+delas. Não há nada a fazer na planilha.
+
 ## Ocorrência de dia inteiro x de algumas horas
 
 Uma ocorrência pode cobrir o dia todo ou só uma parte dele, e a diferença muda o
