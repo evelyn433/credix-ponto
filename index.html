@@ -262,6 +262,7 @@ body {
 .btn-punch.lunch-in { background: var(--blue); color: #080a0d; }
 .btn-punch.lunch-in:hover:not(:disabled) { background: #74b5ff; box-shadow: 0 6px 20px rgba(77,159,255,0.3); }
 .btn-punch:disabled { opacity: 0.3; cursor: not-allowed; }
+.punch-hint { margin-top: 10px; font-size: 11px; line-height: 1.5; color: var(--text3); max-width: 340px; }
 
 .today-total {
   font-size: 13px; font-weight: 600; color: var(--green);
@@ -703,10 +704,9 @@ tr:hover td { background: var(--surface2); }
           </div>
           <div class="punch-btns">
             <button class="btn-punch in" id="btn-in" onclick="punch('Clock In')">▶ Clock In</button>
-            <button class="btn-punch lunch-out" id="btn-lunch-out" onclick="punch('Lunch Out')" disabled>🍽 Lunch Out</button>
-            <button class="btn-punch lunch-in" id="btn-lunch-in" onclick="punch('Lunch In')" disabled>↩ Lunch In</button>
             <button class="btn-punch out" id="btn-out" onclick="punch('Clock Out')" disabled>■ Clock Out</button>
           </div>
+          <div class="punch-hint" id="punch-hint">1h lunch is deducted automatically. Leaving mid-day? Clock out and clock back in when you return.</div>
         </div>
 
         <div class="grid-2">
@@ -1000,8 +1000,6 @@ tr:hover td { background: var(--surface2); }
       <label>Punch</label>
       <select id="corr-type" onchange="previewCorrection()">
         <option value="Clock In">▶ Clock In</option>
-        <option value="Lunch Out">🍽 Lunch Out</option>
-        <option value="Lunch In">↩ Lunch In</option>
         <option value="Clock Out">■ Clock Out</option>
       </select>
     </div>
@@ -1644,38 +1642,39 @@ function todayRecords() {
     .sort((a, b) => timeKey(a.time) - timeKey(b.time));
 }
 
-// ── The four punches of a day ────────────────────────────
-// Clock In → Lunch Out → Lunch In → Clock Out. Lunch is optional: someone
-// who does not break for lunch goes straight from Clock In to Clock Out.
+// ── The punches of a day ─────────────────────────────────
+// Day to day the team punches only Clock In and Clock Out — lunch is a fixed
+// hour taken off automatically, not punched. Lunch Out / Lunch In stay known
+// types so records from the old four-punch era keep computing correctly, and so
+// the admin can still edit a legacy lunch row; there just are no buttons for
+// them any more.
 const PUNCH_TYPES = ['Clock In', 'Lunch Out', 'Lunch In', 'Clock Out'];
 
+// Only two buttons now. setPunchButtons walks these keys, not PUNCH_TYPES.
 const PUNCH_BUTTONS = {
   'Clock In':  'btn-in',
-  'Lunch Out': 'btn-lunch-out',
-  'Lunch In':  'btn-lunch-in',
   'Clock Out': 'btn-out'
 };
 
 function isPunchType(type) { return PUNCH_TYPES.indexOf(type) > -1; }
 
-// What the person can do *today*, from the set of punches they already have
-// today — not just the last one. Keying off the last punch used to dead-end a
-// broken day: a stray Clock Out with no Clock In (a button left over from the
-// day before, clicked after midnight) read as "day complete" and offered no
-// button at all, so the person could not even clock in. The rule now: with no
-// Clock In yet today, Clock In is always offered — a broken day can be restarted.
+// A plain toggle: are you currently clocked in? Count starts (Clock In / the
+// legacy Lunch In) against stops (Clock Out / the legacy Lunch Out). More starts
+// than stops → you are in, so offer Clock Out; otherwise offer Clock In. It is
+// always exactly one button, so a day can never dead-end, and Clock In staying
+// available after a Clock Out is what lets someone leave mid-day and clock back
+// in when they return.
 function todayPunchState(recs) {
-  const have = {};
-  recs.filter(function(r) { return isPunchType(r.type); })
-      .forEach(function(r) { have[r.type] = true; });
-
-  if (!have['Clock In']) return { allowed: ['Clock In'], cls: 'out', text: 'Not clocked in' };
-  if (have['Clock Out']) return { allowed: [], cls: 'out', text: 'Day complete' };
-  if (have['Lunch Out'] && !have['Lunch In'])
-                         return { allowed: ['Lunch In'], cls: 'out', text: 'At lunch' };
-  // clocked in, not out, not at lunch
-  const allowed = have['Lunch Out'] ? ['Clock Out'] : ['Lunch Out', 'Clock Out'];
-  return { allowed: allowed, cls: 'in', text: have['Lunch In'] ? 'Back from lunch' : 'Clocked in' };
+  const punches = recs.filter(function(r) { return isPunchType(r.type); });
+  let ins = 0, outs = 0;
+  punches.forEach(function(r) {
+    if (r.type === 'Clock In' || r.type === 'Lunch In') ins++; else outs++;
+  });
+  if (ins > outs) return { allowed: ['Clock Out'], cls: 'in', text: 'Working' };
+  // Out: "clocked out" only if there was actually a clock-in today; a lone stray
+  // Clock Out reads as "not clocked in", which is the truth.
+  const clockedInToday = punches.some(function(r) { return r.type === 'Clock In'; });
+  return { allowed: ['Clock In'], cls: 'out', text: clockedInToday ? 'Clocked out' : 'Not clocked in' };
 }
 
 // Seconds worked, pairing each start with the next stop. Tolerates a missing
@@ -1694,6 +1693,25 @@ function workedSeconds(recs) {
     }
   });
   return total;
+}
+
+// Lunch is one fixed hour. The team stopped punching it, so it comes off the
+// day's total automatically. But days from the old four-punch era already
+// carry Lunch Out / Lunch In, and there the lunch gap is excluded by the
+// pairing above — subtracting an hour again would double-count. So: if the day
+// has any lunch punch, nothing extra; otherwise take an hour off any day that
+// has worked time.
+const LUNCH_SECONDS = 60 * 60;
+
+function lunchOff(recs) {
+  const punched = recs.some(function(r) { return r.type === 'Lunch Out' || r.type === 'Lunch In'; });
+  if (punched) return 0;
+  return workedSeconds(recs) > 0 ? LUNCH_SECONDS : 0;
+}
+
+// What the day is worth after lunch — never below zero.
+function netWorked(recs) {
+  return Math.max(0, workedSeconds(recs) - lunchOff(recs));
 }
 
 function formatDuration(seconds) {
@@ -1734,13 +1752,11 @@ async function punch(type) {
 
 const PUNCH_MESSAGES = {
   'Clock In':  '▶ Clocked in successfully!',
-  'Lunch Out': '🍽 Lunch break started.',
-  'Lunch In':  '↩ Back from lunch.',
   'Clock Out': '■ Clocked out successfully!'
 };
 
 function setPunchButtons(allowed) {
-  PUNCH_TYPES.forEach(function(type) {
+  Object.keys(PUNCH_BUTTONS).forEach(function(type) {
     const btn = document.getElementById(PUNCH_BUTTONS[type]);
     if (btn) btn.disabled = allowed.indexOf(type) === -1;
   });
@@ -1795,15 +1811,19 @@ function renderToday() {
 
   const totalEl = document.getElementById('today-total');
   if (totalEl) {
-    const secs = workedSeconds(recs);
     const justified = recs.filter(r => !isPunchType(r.type))
       .map(r => parseWindow(r.time)).filter(Boolean)
       .reduce((sum, w) => sum + w.seconds, 0);
     const open = recs.filter(r => isPunchType(r.type)).length % 2 === 1;
+    // While the day is still running, show what is actually on the clock; the
+    // 1h lunch is only taken off once the day is closed, so the number does not
+    // dip by an hour before lunch has even happened.
+    const secs = open ? workedSeconds(recs) : netWorked(recs);
+    const lunched = !open && lunchOff(recs) > 0;
     totalEl.style.display = (secs > 0 || justified > 0) ? 'block' : 'none';
     totalEl.textContent = '⏱ Worked today: ' + formatDuration(secs)
       + (justified ? ' + ' + formatDuration(justified) + ' justified' : '')
-      + (open ? ' (still running)' : '');
+      + (open ? ' (still running)' : (lunched ? ' (1h lunch deducted)' : ''));
   }
 
   if (!recs.length) { el.innerHTML = '<div class="empty-log">No records yet today.</div>'; return; }
@@ -2319,12 +2339,18 @@ function summariseDays(recs) {
     const day = byKey[key];
     const punches = day.punches.slice().sort((a, b) => timeKey(a.time) - timeKey(b.time));
     const first = t => { const p = punches.find(r => r.type === t); return p ? p.time : ''; };
+    const last = t => { const p = punches.filter(r => r.type === t).pop(); return p ? p.time : ''; };
 
-    day.worked = workedSeconds(punches);
+    // Net of the automatic lunch. gross/lunch kept for the report to show.
+    day.gross = workedSeconds(punches);
+    day.lunch = lunchOff(punches);
+    day.worked = netWorked(punches);
     day.clockIn = first('Clock In');
     day.lunchOut = first('Lunch Out');
     day.lunchIn = first('Lunch In');
-    day.clockOut = first('Clock Out');
+    // The end of the day is the *last* clock out — a mid-day exit leaves an
+    // earlier one that is not when the person went home.
+    day.clockOut = last('Clock Out');
     day.incomplete = punches.length > 0 && punches.length % 2 === 1;
     day.hasOccurrence = day.occurrences.length > 0;
 
@@ -2483,9 +2509,11 @@ function renderDailyTable(days) {
     return;
   }
   tbody.innerHTML = days.map(function(d) {
+    // Legacy days show the punched lunch window; new days show the fixed hour
+    // that was taken off automatically.
     const lunch = (d.lunchOut || d.lunchIn)
       ? formatTime(d.lunchOut) + ' → ' + formatTime(d.lunchIn)
-      : '—';
+      : (d.lunch ? '−' + formatDuration(d.lunch) : '—');
     return '<tr>'
       + '<td><span style="font-weight:500">' + escapeHtml(d.name) + '</span></td>'
       + '<td>' + formatDate(d.date) + ' ' + dayFlag(d) + '</td>'
