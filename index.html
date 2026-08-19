@@ -1649,15 +1649,6 @@ function todayRecords() {
 // who does not break for lunch goes straight from Clock In to Clock Out.
 const PUNCH_TYPES = ['Clock In', 'Lunch Out', 'Lunch In', 'Clock Out'];
 
-// which buttons each state allows
-const PUNCH_FLOW = {
-  '':           ['Clock In'],
-  'Clock In':   ['Lunch Out', 'Clock Out'],
-  'Lunch Out':  ['Lunch In'],
-  'Lunch In':   ['Clock Out'],
-  'Clock Out':  []
-};
-
 const PUNCH_BUTTONS = {
   'Clock In':  'btn-in',
   'Lunch Out': 'btn-lunch-out',
@@ -1665,19 +1656,26 @@ const PUNCH_BUTTONS = {
   'Clock Out': 'btn-out'
 };
 
-const PUNCH_STATUS = {
-  '':           { cls: 'out', text: 'Not clocked in' },
-  'Clock In':   { cls: 'in',  text: 'Clocked in' },
-  'Lunch Out':  { cls: 'out', text: 'At lunch' },
-  'Lunch In':   { cls: 'in',  text: 'Back from lunch' },
-  'Clock Out':  { cls: 'out', text: 'Day complete' }
-};
-
 function isPunchType(type) { return PUNCH_TYPES.indexOf(type) > -1; }
 
-function getLastTodayRecord() {
-  const recs = todayRecords().filter(r => isPunchType(r.type));
-  return recs.length ? recs[recs.length-1] : null;
+// What the person can do *today*, from the set of punches they already have
+// today — not just the last one. Keying off the last punch used to dead-end a
+// broken day: a stray Clock Out with no Clock In (a button left over from the
+// day before, clicked after midnight) read as "day complete" and offered no
+// button at all, so the person could not even clock in. The rule now: with no
+// Clock In yet today, Clock In is always offered — a broken day can be restarted.
+function todayPunchState(recs) {
+  const have = {};
+  recs.filter(function(r) { return isPunchType(r.type); })
+      .forEach(function(r) { have[r.type] = true; });
+
+  if (!have['Clock In']) return { allowed: ['Clock In'], cls: 'out', text: 'Not clocked in' };
+  if (have['Clock Out']) return { allowed: [], cls: 'out', text: 'Day complete' };
+  if (have['Lunch Out'] && !have['Lunch In'])
+                         return { allowed: ['Lunch In'], cls: 'out', text: 'At lunch' };
+  // clocked in, not out, not at lunch
+  const allowed = have['Lunch Out'] ? ['Clock Out'] : ['Lunch Out', 'Clock Out'];
+  return { allowed: allowed, cls: 'in', text: have['Lunch In'] ? 'Back from lunch' : 'Clocked in' };
 }
 
 // Seconds worked, pairing each start with the next stop. Tolerates a missing
@@ -1705,6 +1703,16 @@ function formatDuration(seconds) {
 }
 
 async function punch(type) {
+  // Re-check against today's current state at click time. A button left over
+  // from an earlier view — a tab open across midnight — could otherwise write a
+  // punch that makes no sense for today.
+  const st = todayPunchState(todayRecords());
+  if (st.allowed.indexOf(type) === -1) {
+    updateStatus();
+    showToast('⚠️ That punch is no longer available — the buttons were refreshed.', 'error');
+    return;
+  }
+
   setPunchButtons([]);
 
   const now = new Date();
@@ -1739,17 +1747,25 @@ function setPunchButtons(allowed) {
 }
 
 function updateStatus() {
-  const last = getLastTodayRecord();
-  const state = last ? last.type : '';
-  const status = PUNCH_STATUS[state] || PUNCH_STATUS[''];
+  const dot = document.getElementById('status-dot');
+  if (!dot) return;   // punch UI not on screen (admin view)
+  const st = todayPunchState(todayRecords());
 
-  document.getElementById('status-dot').className = 'status-dot ' + status.cls;
+  dot.className = 'status-dot ' + st.cls;
   const label = document.getElementById('status-label');
-  label.className = 'status-label ' + status.cls;
-  label.textContent = status.text;
+  label.className = 'status-label ' + st.cls;
+  label.textContent = st.text;
 
-  setPunchButtons(PUNCH_FLOW[state] || []);
+  setPunchButtons(st.allowed);
 }
+
+// When the tab comes back into view — notably the morning after it was left open
+// overnight — recompute against the new day so yesterday's buttons do not
+// linger. todayRecords() keys off the current date, so this rolls the day over
+// with no network call.
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible' && currentUser) { updateStatus(); renderToday(); }
+});
 
 function formatTime(val) {
   if (!val || val === '') return '—';
