@@ -786,6 +786,9 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
           <div class="filter-item">
             <input type="number" id="rep-year" placeholder="Year" min="2024" max="2099" oninput="renderReport()">
           </div>
+          <div class="filter-item">
+            <button class="btn btn-outline btn-sm" onclick="reportShowAll()">Show all months</button>
+          </div>
           <button class="btn btn-green" onclick="exportCSV()">↓ Export CSV</button>
         </div>
 
@@ -1641,7 +1644,16 @@ function showPage(page) {
   if (navEl) navEl.classList.add('active');
 
   if (page === 'account') { renderAccount(); }
-  if (page === 'report') { withRecords(renderReport); }
+  if (page === 'report') {
+    // Open on the current month so the list stays short and the balance shown
+    // is this month's. "Show all months" (and the month/year pickers) widen it.
+    const now = new Date();
+    const mEl = document.getElementById('rep-month');
+    if (mEl) mEl.value = String(now.getMonth() + 1).padStart(2, '0');
+    const yEl = document.getElementById('rep-year');
+    if (yEl) yEl.value = String(now.getFullYear());
+    withRecords(renderReport);
+  }
   if (page === 'admin') {
     // Each visit opens on today so the list stays short; the day picker and
     // "Show all days" widen it. Set before rendering so the first paint is today.
@@ -2481,6 +2493,12 @@ function renderPersonTable(people) {
 
 // The records the current filters select, honouring that a collaborator only
 // ever sees their own.
+function reportShowAll() {
+  const m = document.getElementById('rep-month'); if (m) m.value = '';
+  const y = document.getElementById('rep-year'); if (y) y.value = '';
+  renderReport();
+}
+
 function reportRecords() {
   const fu = document.getElementById('rep-user').value;
   const mm = document.getElementById('rep-month').value;
