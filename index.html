@@ -763,7 +763,16 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
           <div class="page-sub">Hours worked, time balance and export</div>
         </div>
         <div class="filters">
-          <div class="filter-item">
+          <!-- Collaborators get a simple period switch, defaulting to this week so
+               the list stays short. The admin keeps the month/year filters. -->
+          <div class="filter-item" id="rep-period-item" style="display:none">
+            <select id="rep-period" onchange="renderReport()">
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="all">All time</option>
+            </select>
+          </div>
+          <div class="filter-item" id="rep-user-item">
             <select id="rep-user" onchange="renderReport()">
               <option value="">All collaborators</option>
               <option value="evelyn">Evelyn</option>
@@ -772,7 +781,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
               <option value="enzo">Enzo</option>
             </select>
           </div>
-          <div class="filter-item">
+          <div class="filter-item" id="rep-month-item">
             <select id="rep-month" onchange="renderReport()">
               <option value="">All months</option>
               <option value="01">January</option><option value="02">February</option>
@@ -783,10 +792,10 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
               <option value="11">November</option><option value="12">December</option>
             </select>
           </div>
-          <div class="filter-item">
+          <div class="filter-item" id="rep-year-item">
             <input type="number" id="rep-year" placeholder="Year" min="2024" max="2099" oninput="renderReport()">
           </div>
-          <div class="filter-item">
+          <div class="filter-item" id="rep-showall-item">
             <button class="btn btn-outline btn-sm" onclick="reportShowAll()">Show all months</button>
           </div>
           <button class="btn btn-green" onclick="exportCSV()">↓ Export CSV</button>
@@ -1589,6 +1598,18 @@ async function initApp() {
   const repUser = document.getElementById('rep-user');
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
   else { repUser.value = ''; repUser.disabled = false; }
+
+  // Two filter systems, one per role. A collaborator sees a single period switch
+  // that opens on the current week; the admin keeps the month/year filters and
+  // the whole-team default, untouched.
+  const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  show('rep-period-item', !u.admin);
+  show('rep-user-item', u.admin);
+  show('rep-month-item', u.admin);
+  show('rep-year-item', u.admin);
+  show('rep-showall-item', u.admin);
+  const period = document.getElementById('rep-period');
+  if (period) period.value = 'week';
 
   // The admin's first question is how the whole team stands, a collaborator's is
   // how their own days went.
@@ -2499,13 +2520,46 @@ function reportShowAll() {
   renderReport();
 }
 
+// The window a collaborator's period switch selects. Pure, so "now" can be
+// injected in tests. Week runs Monday 00:00 through the following Monday.
+function periodWindow(period, now) {
+  now = now || new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (period === 'all') return null;
+  if (period === 'month') {
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1),
+             end:   new Date(now.getFullYear(), now.getMonth() + 1, 1) };
+  }
+  const mondayOffset = (midnight.getDay() + 6) % 7;   // 0 = Monday
+  const start = new Date(midnight); start.setDate(midnight.getDate() - mondayOffset);
+  const end = new Date(start); end.setDate(start.getDate() + 7);
+  return { start: start, end: end };
+}
+
+function inWindow(brDate, win) {
+  if (!win) return true;
+  const p = String(brDate || '').split('/');   // DD/MM/YYYY
+  if (p.length !== 3) return false;
+  const dt = new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
+  return dt >= win.start && dt < win.end;
+}
+
+let reportPeriod = 'week';
+
 function reportRecords() {
+  let recs = getRecords();
+  if (!isAdmin(currentUser)) {
+    // Collaborator: own records, bounded by the period switch.
+    recs = recs.filter(r => r.user === currentUser);
+    const period = (document.getElementById('rep-period') || {}).value || reportPeriod;
+    const win = periodWindow(period);
+    return recs.filter(r => inWindow(r.date, win));
+  }
+  // Admin: unchanged — user + month/year filters.
   const fu = document.getElementById('rep-user').value;
   const mm = document.getElementById('rep-month').value;
   const yy = document.getElementById('rep-year').value;
-  let recs = getRecords();
-  if (!isAdmin(currentUser)) recs = recs.filter(r => r.user === currentUser);
-  else if (fu) recs = recs.filter(r => r.user === fu);
+  if (fu) recs = recs.filter(r => r.user === fu);
   return filterByMonthYear(recs, mm, yy);
 }
 
@@ -2532,11 +2586,16 @@ function renderReport() {
     + '<div class="stat-card"><div class="stat-value" style="color:var(--gold)">' + occurrences + '</div>'
       + '<div class="stat-label">Occurrences</div></div>';
 
-  // Never let a day drop out of the balance silently.
+  // Never let a day drop out of the balance silently. For a collaborator, also
+  // name the period, so the totals above are never read as the whole history.
   const note = document.getElementById('report-note');
-  note.textContent = skipped.length
+  const periodLabel = !isAdmin(currentUser)
+    ? ({ week: 'This week', month: 'This month', all: 'All time' }[(document.getElementById('rep-period') || {}).value] || 'This week')
+    : '';
+  const base = skipped.length
     ? '⚠️ ' + skipped.length + ' day(s) left out of the balance — see the flags below'
     : 'Target ' + formatDuration(DAILY_TARGET_SECONDS) + ' worked per day, lunch excluded';
+  note.textContent = periodLabel ? periodLabel + ' · ' + base : base;
 
   renderPersonTable(summarisePeople(days));
   renderDailyTable(days);
