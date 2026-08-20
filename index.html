@@ -1610,19 +1610,20 @@ async function initApp() {
   if (!u.admin) { repUser.value = currentUser; repUser.disabled = true; }
   else { repUser.value = ''; repUser.disabled = false; }
 
-  // Two filter systems, one per role. A collaborator sees a single period switch
-  // that opens on the current week; the admin keeps the month/year filters and
-  // the whole-team default, untouched.
+  // Both roles get the same period switch (This week / month / all / custom
+  // range), which replaces the old month/year selects. The admin also keeps the
+  // collaborator picker. A collaborator opens on the current week, the admin on
+  // the current month.
   const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
-  show('rep-period-item', !u.admin);
+  show('rep-period-item', true);
   show('rep-user-item', u.admin);
-  show('rep-month-item', u.admin);
-  show('rep-year-item', u.admin);
-  show('rep-showall-item', u.admin);
+  show('rep-month-item', false);
+  show('rep-year-item', false);
+  show('rep-showall-item', false);
   show('rep-from-item', false);   // only the custom range reveals these
   show('rep-to-item', false);
   const period = document.getElementById('rep-period');
-  if (period) period.value = 'week';
+  if (period) period.value = u.admin ? 'month' : 'week';
 
   // The admin's first question is how the whole team stands, a collaborator's is
   // how their own days went.
@@ -2594,21 +2595,18 @@ function onReportPeriodChange() {
 
 function reportRecords() {
   let recs = getRecords();
-  if (!isAdmin(currentUser)) {
-    // Collaborator: own records, bounded by the period switch.
-    recs = recs.filter(r => r.user === currentUser);
-    const period = (document.getElementById('rep-period') || {}).value || reportPeriod;
-    const win = period === 'custom'
-      ? customWindow((document.getElementById('rep-from') || {}).value, (document.getElementById('rep-to') || {}).value)
-      : periodWindow(period);
-    return recs.filter(r => inWindow(r.date, win));
+  if (isAdmin(currentUser)) {
+    const fu = document.getElementById('rep-user').value;
+    if (fu) recs = recs.filter(r => r.user === fu);   // the admin may focus one person
+  } else {
+    recs = recs.filter(r => r.user === currentUser);  // a collaborator only ever sees themselves
   }
-  // Admin: unchanged — user + month/year filters.
-  const fu = document.getElementById('rep-user').value;
-  const mm = document.getElementById('rep-month').value;
-  const yy = document.getElementById('rep-year').value;
-  if (fu) recs = recs.filter(r => r.user === fu);
-  return filterByMonthYear(recs, mm, yy);
+  // Both roles bound the list by the same period switch, custom range included.
+  const period = (document.getElementById('rep-period') || {}).value || reportPeriod;
+  const win = period === 'custom'
+    ? customWindow((document.getElementById('rep-from') || {}).value, (document.getElementById('rep-to') || {}).value)
+    : periodWindow(period);
+  return recs.filter(r => inWindow(r.date, win));
 }
 
 function renderReport() {
@@ -2634,11 +2632,11 @@ function renderReport() {
     + '<div class="stat-card"><div class="stat-value" style="color:var(--gold)">' + occurrences + '</div>'
       + '<div class="stat-label">Occurrences</div></div>';
 
-  // Never let a day drop out of the balance silently. For a collaborator, also
-  // name the period, so the totals above are never read as the whole history.
+  // Never let a day drop out of the balance silently. Name the period too — for
+  // both roles now — so the totals above are never read as the whole history.
   const note = document.getElementById('report-note');
   let periodLabel = '';
-  if (!isAdmin(currentUser)) {
+  {
     const p = (document.getElementById('rep-period') || {}).value;
     if (p === 'custom') {
       const f = (document.getElementById('rep-from') || {}).value;
@@ -2762,10 +2760,8 @@ function exportCSV() {
   }
 
   const fu = document.getElementById('rep-user').value;
-  const mm = document.getElementById('rep-month').value;
-  const yy = document.getElementById('rep-year').value;
-  const months = ['','jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  const suffix = [kind, fu||'all', mm ? months[parseInt(mm)] : '', yy||''].filter(Boolean).join('_');
+  const period = (document.getElementById('rep-period') || {}).value || 'all';
+  const suffix = [kind, fu || 'all', period].filter(Boolean).join('_');
 
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
