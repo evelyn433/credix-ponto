@@ -393,6 +393,7 @@ tr:hover td { background: var(--surface2); }
 /* ── FILTERS ── */
 .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .admin-scope { font-size: 12px; color: var(--text3); margin: -4px 0 14px; }
+.mini-label { display:block; font-size:10px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:var(--text3); margin-bottom:4px; }
 .filter-item { flex: 1; min-width: 140px; }
 .filter-item select, .filter-item input {
   width: 100%;
@@ -774,10 +775,12 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
             </select>
           </div>
           <div class="filter-item" id="rep-from-item" style="display:none">
-            <input type="date" id="rep-from" onchange="renderReport()" aria-label="From">
+            <label class="mini-label">From</label>
+            <input type="date" id="rep-from" onchange="onReportDateEdit()" aria-label="From">
           </div>
           <div class="filter-item" id="rep-to-item" style="display:none">
-            <input type="date" id="rep-to" onchange="renderReport()" aria-label="To">
+            <label class="mini-label">To</label>
+            <input type="date" id="rep-to" onchange="onReportDateEdit()" aria-label="To">
           </div>
           <div class="filter-item" id="rep-user-item">
             <select id="rep-user" onchange="renderReport()">
@@ -1616,14 +1619,15 @@ async function initApp() {
   // the current month.
   const show = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
   show('rep-period-item', true);
+  show('rep-from-item', true);     // date fields are always visible now
+  show('rep-to-item', true);
   show('rep-user-item', u.admin);
   show('rep-month-item', false);
   show('rep-year-item', false);
   show('rep-showall-item', false);
-  show('rep-from-item', false);   // only the custom range reveals these
-  show('rep-to-item', false);
   const period = document.getElementById('rep-period');
   if (period) period.value = u.admin ? 'month' : 'week';
+  fillPeriodDates(period ? period.value : 'week');   // prefill From/To for the default
 
   // The admin's first question is how the whole team stands, a collaborator's is
   // how their own days went.
@@ -2575,21 +2579,31 @@ function customWindow(fromVal, toVal) {
 
 let reportPeriod = 'week';
 
-// Reveal the from/to fields only for the custom range, pre-filling them with the
-// current week the first time so there is a sensible starting point to adjust.
+// The From/To date fields are always visible and are the single source of truth
+// for the filter. The period dropdown is a shortcut that fills them: picking a
+// preset writes the dates, and editing a date by hand flips the dropdown to
+// "Custom range". So there is always a visible date filter on this screen.
+function fillPeriodDates(period) {
+  const from = document.getElementById('rep-from'), to = document.getElementById('rep-to');
+  if (!from || !to) return;
+  if (period === 'all') { from.value = ''; to.value = ''; return; }
+  const w = periodWindow(period === 'custom' ? 'week' : period);
+  if (!w) { from.value = ''; to.value = ''; return; }
+  const last = new Date(w.end); last.setDate(last.getDate() - 1);   // end is exclusive
+  from.value = localDateInput(w.start);
+  to.value = localDateInput(last);
+}
+
 function onReportPeriodChange() {
   const period = document.getElementById('rep-period').value;
-  const custom = period === 'custom';
-  ['rep-from-item', 'rep-to-item'].forEach(function(id) {
-    const el = document.getElementById(id); if (el) el.style.display = custom ? '' : 'none';
-  });
-  if (custom) {
-    const from = document.getElementById('rep-from'), to = document.getElementById('rep-to');
-    if (from && to && !from.value && !to.value) {
-      from.value = localDateInput(periodWindow('week').start);
-      to.value = localDateInput();
-    }
-  }
+  if (period !== 'custom') fillPeriodDates(period);   // a preset fills the dates
+  renderReport();
+}
+
+// Editing a date by hand means a custom range — reflect that in the dropdown.
+function onReportDateEdit() {
+  const sel = document.getElementById('rep-period');
+  if (sel) sel.value = 'custom';
   renderReport();
 }
 
@@ -2601,11 +2615,10 @@ function reportRecords() {
   } else {
     recs = recs.filter(r => r.user === currentUser);  // a collaborator only ever sees themselves
   }
-  // Both roles bound the list by the same period switch, custom range included.
-  const period = (document.getElementById('rep-period') || {}).value || reportPeriod;
-  const win = period === 'custom'
-    ? customWindow((document.getElementById('rep-from') || {}).value, (document.getElementById('rep-to') || {}).value)
-    : periodWindow(period);
+  // Always filter by the visible From/To window. "All time" clears both dates,
+  // which is an unbounded window (everything).
+  const win = customWindow((document.getElementById('rep-from') || {}).value,
+                           (document.getElementById('rep-to') || {}).value);
   return recs.filter(r => inWindow(r.date, win));
 }
 
@@ -2635,16 +2648,13 @@ function renderReport() {
   // Never let a day drop out of the balance silently. Name the period too — for
   // both roles now — so the totals above are never read as the whole history.
   const note = document.getElementById('report-note');
+  // Name the actual window (the dates are the source of truth), so the totals
+  // above are never read as the whole history.
   let periodLabel = '';
   {
-    const p = (document.getElementById('rep-period') || {}).value;
-    if (p === 'custom') {
-      const f = (document.getElementById('rep-from') || {}).value;
-      const t = (document.getElementById('rep-to') || {}).value;
-      periodLabel = (f || t) ? (inputDateToBr(f) || '…') + ' – ' + (inputDateToBr(t) || '…') : 'Custom range';
-    } else {
-      periodLabel = { week: 'This week', month: 'This month', all: 'All time' }[p] || 'This week';
-    }
+    const f = (document.getElementById('rep-from') || {}).value;
+    const t = (document.getElementById('rep-to') || {}).value;
+    periodLabel = (f || t) ? (inputDateToBr(f) || '…') + ' – ' + (inputDateToBr(t) || '…') : 'All time';
   }
   const base = skipped.length
     ? '⚠️ ' + skipped.length + ' day(s) left out of the balance — see the flags below'
