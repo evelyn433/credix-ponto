@@ -769,6 +769,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
           <!-- Collaborators get a simple period switch, defaulting to this week so
                the list stays short. The admin keeps the month/year filters. -->
           <div class="filter-item" id="rep-period-item" style="display:none">
+            <label class="mini-label">Period</label>
             <select id="rep-period" onchange="onReportPeriodChange()">
               <option value="week">This week</option>
               <option value="month">This month</option>
@@ -785,6 +786,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
             <input type="date" id="rep-to" onchange="onReportDateEdit()" aria-label="To">
           </div>
           <div class="filter-item" id="rep-user-item">
+            <label class="mini-label">Collaborator</label>
             <select id="rep-user" onchange="renderReport()">
               <option value="">All collaborators</option>
               <option value="evelyn">Evelyn</option>
