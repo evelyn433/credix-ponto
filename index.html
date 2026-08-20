@@ -392,6 +392,7 @@ tr:hover td { background: var(--surface2); }
 
 /* ── FILTERS ── */
 .filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.admin-scope { font-size: 12px; color: var(--text3); margin: -4px 0 14px; }
 .filter-item { flex: 1; min-width: 140px; }
 .filter-item select, .filter-item input {
   width: 100%;
@@ -891,7 +892,13 @@ tr:hover td { background: var(--surface2); }
             </select>
           </div>
           <div class="filter-item">
-            <select id="admin-month" onchange="renderAdmin()">
+            <input type="date" id="admin-day" onchange="clearAdminRange(); renderAdmin()" title="Show a single day">
+          </div>
+          <div class="filter-item">
+            <button class="btn btn-outline btn-sm" onclick="adminShowAll()">Show all days</button>
+          </div>
+          <div class="filter-item">
+            <select id="admin-month" onchange="clearAdminDay(); renderAdmin()">
               <option value="">All months</option>
               <option value="01">January</option><option value="02">February</option>
               <option value="03">March</option><option value="04">April</option>
@@ -902,9 +909,10 @@ tr:hover td { background: var(--surface2); }
             </select>
           </div>
           <div class="filter-item">
-            <input type="number" id="admin-year" placeholder="Year" min="2024" max="2099" oninput="renderAdmin()">
+            <input type="number" id="admin-year" placeholder="Year" min="2024" max="2099" oninput="clearAdminDay(); renderAdmin()">
           </div>
         </div>
+        <div id="admin-scope" class="admin-scope"></div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th><th>Actions</th></tr></thead>
@@ -1625,7 +1633,13 @@ function showPage(page) {
 
   if (page === 'account') { renderAccount(); }
   if (page === 'report') { withRecords(renderReport); }
-  if (page === 'admin') { withUsers(renderCollaborators); withRecords(renderAdmin); renderApprovals(); }
+  if (page === 'admin') {
+    // Each visit opens on today so the list stays short; the day picker and
+    // "Show all days" widen it. Set before rendering so the first paint is today.
+    const dayEl = document.getElementById('admin-day');
+    if (dayEl) { dayEl.value = localDateInput(); clearAdminRange(); }
+    withUsers(renderCollaborators); withRecords(renderAdmin); renderApprovals();
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -2598,13 +2612,37 @@ function exportCSV() {
 // ═══════════════════════════════════════════════════
 // ADMIN
 // ═══════════════════════════════════════════════════
+// Only one date scope is active at a time, so a chosen day and a chosen
+// month/year never contradict each other on screen.
+function clearAdminDay() { const el = document.getElementById('admin-day'); if (el) el.value = ''; }
+function clearAdminRange() {
+  const m = document.getElementById('admin-month'); if (m) m.value = '';
+  const y = document.getElementById('admin-year'); if (y) y.value = '';
+}
+function adminShowAll() { clearAdminDay(); clearAdminRange(); renderAdmin(); }
+
 function renderAdmin() {
   const fu = document.getElementById('admin-user').value;
+  const day = document.getElementById('admin-day').value;   // YYYY-MM-DD, or ''
   const mm = document.getElementById('admin-month').value;
   const yy = document.getElementById('admin-year').value;
   let recs = getRecords();
   if (fu) recs = recs.filter(r => r.user === fu);
-  recs = sortRecords(filterByMonthYear(recs, mm, yy), 'desc');
+  // A single day wins; otherwise the month/year range (or everything).
+  if (day) {
+    const br = inputDateToBr(day);
+    recs = recs.filter(r => r.date === br);
+  } else {
+    recs = filterByMonthYear(recs, mm, yy);
+  }
+  recs = sortRecords(recs, 'desc');
+
+  const scopeEl = document.getElementById('admin-scope');
+  if (scopeEl) {
+    const where = day ? formatDate(inputDateToBr(day))
+      : (mm || yy ? 'the selected period' : 'all days');
+    scopeEl.textContent = 'Showing ' + where + ' · ' + recs.length + (recs.length === 1 ? ' record' : ' records');
+  }
 
   const tbody = document.getElementById('admin-body');
   if (!recs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
