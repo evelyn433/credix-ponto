@@ -766,11 +766,18 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
           <!-- Collaborators get a simple period switch, defaulting to this week so
                the list stays short. The admin keeps the month/year filters. -->
           <div class="filter-item" id="rep-period-item" style="display:none">
-            <select id="rep-period" onchange="renderReport()">
+            <select id="rep-period" onchange="onReportPeriodChange()">
               <option value="week">This week</option>
               <option value="month">This month</option>
               <option value="all">All time</option>
+              <option value="custom">Custom range</option>
             </select>
+          </div>
+          <div class="filter-item" id="rep-from-item" style="display:none">
+            <input type="date" id="rep-from" onchange="renderReport()" aria-label="From">
+          </div>
+          <div class="filter-item" id="rep-to-item" style="display:none">
+            <input type="date" id="rep-to" onchange="renderReport()" aria-label="To">
           </div>
           <div class="filter-item" id="rep-user-item">
             <select id="rep-user" onchange="renderReport()">
@@ -1608,6 +1615,8 @@ async function initApp() {
   show('rep-month-item', u.admin);
   show('rep-year-item', u.admin);
   show('rep-showall-item', u.admin);
+  show('rep-from-item', false);   // only the custom range reveals these
+  show('rep-to-item', false);
   const period = document.getElementById('rep-period');
   if (period) period.value = 'week';
 
@@ -2536,15 +2545,48 @@ function periodWindow(period, now) {
   return { start: start, end: end };
 }
 
+// win may have a null start and/or end, meaning that side is unbounded — a
+// custom range with only one date filled still works.
 function inWindow(brDate, win) {
   if (!win) return true;
   const p = String(brDate || '').split('/');   // DD/MM/YYYY
   if (p.length !== 3) return false;
   const dt = new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
-  return dt >= win.start && dt < win.end;
+  if (win.start && dt < win.start) return false;
+  if (win.end && dt >= win.end) return false;
+  return true;
+}
+
+// A custom range from two <input type="date"> values (YYYY-MM-DD). The "to" day
+// is inclusive, so the window ends at the following midnight.
+function customWindow(fromVal, toVal) {
+  const parse = v => { const p = String(v || '').split('-'); return p.length === 3 ? new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])) : null; };
+  const start = parse(fromVal);
+  let end = parse(toVal);
+  if (end) { end = new Date(end); end.setDate(end.getDate() + 1); }
+  if (!start && !end) return null;   // nothing chosen yet → show everything
+  return { start: start, end: end };
 }
 
 let reportPeriod = 'week';
+
+// Reveal the from/to fields only for the custom range, pre-filling them with the
+// current week the first time so there is a sensible starting point to adjust.
+function onReportPeriodChange() {
+  const period = document.getElementById('rep-period').value;
+  const custom = period === 'custom';
+  ['rep-from-item', 'rep-to-item'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.style.display = custom ? '' : 'none';
+  });
+  if (custom) {
+    const from = document.getElementById('rep-from'), to = document.getElementById('rep-to');
+    if (from && to && !from.value && !to.value) {
+      from.value = localDateInput(periodWindow('week').start);
+      to.value = localDateInput();
+    }
+  }
+  renderReport();
+}
 
 function reportRecords() {
   let recs = getRecords();
@@ -2552,7 +2594,9 @@ function reportRecords() {
     // Collaborator: own records, bounded by the period switch.
     recs = recs.filter(r => r.user === currentUser);
     const period = (document.getElementById('rep-period') || {}).value || reportPeriod;
-    const win = periodWindow(period);
+    const win = period === 'custom'
+      ? customWindow((document.getElementById('rep-from') || {}).value, (document.getElementById('rep-to') || {}).value)
+      : periodWindow(period);
     return recs.filter(r => inWindow(r.date, win));
   }
   // Admin: unchanged — user + month/year filters.
@@ -2589,9 +2633,17 @@ function renderReport() {
   // Never let a day drop out of the balance silently. For a collaborator, also
   // name the period, so the totals above are never read as the whole history.
   const note = document.getElementById('report-note');
-  const periodLabel = !isAdmin(currentUser)
-    ? ({ week: 'This week', month: 'This month', all: 'All time' }[(document.getElementById('rep-period') || {}).value] || 'This week')
-    : '';
+  let periodLabel = '';
+  if (!isAdmin(currentUser)) {
+    const p = (document.getElementById('rep-period') || {}).value;
+    if (p === 'custom') {
+      const f = (document.getElementById('rep-from') || {}).value;
+      const t = (document.getElementById('rep-to') || {}).value;
+      periodLabel = (f || t) ? (inputDateToBr(f) || '…') + ' – ' + (inputDateToBr(t) || '…') : 'Custom range';
+    } else {
+      periodLabel = { week: 'This week', month: 'This month', all: 'All time' }[p] || 'This week';
+    }
+  }
   const base = skipped.length
     ? '⚠️ ' + skipped.length + ' day(s) left out of the balance — see the flags below'
     : 'Target ' + formatDuration(DAILY_TARGET_SECONDS) + ' worked per day, lunch excluded';
