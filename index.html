@@ -410,6 +410,15 @@ tr:hover td { background: var(--surface2); }
 .filter-item select:focus, .filter-item input:focus { border-color: var(--green); }
 .filter-item select option { background: var(--surface2); }
 
+/* The native calendar/clock icon renders dark on our dark inputs and was almost
+   invisible. color-scheme: dark tells the browser to draw the icon (and its
+   popup) light instead. */
+input[type="date"], input[type="time"] { color-scheme: dark; }
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator { opacity: 0.85; cursor: pointer; }
+input[type="date"]:hover::-webkit-calendar-picker-indicator,
+input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+
 /* ── VIEW SWITCH ── */
 .view-switch { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .view-btn {
