@@ -839,7 +839,8 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
 
         <div class="table-wrap" id="report-punches-wrap" style="display:none">
           <table>
-            <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th>
+              <th id="report-punch-actions-th" style="display:none">Actions</th></tr></thead>
             <tbody id="report-body"></tbody>
           </table>
         </div>
@@ -900,14 +901,17 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
         <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
           <div>
             <div class="page-title">Admin Panel</div>
-            <div class="page-sub">Edit or delete any record</div>
+            <div class="page-sub">Approve requests, review occurrences and manage the team</div>
           </div>
           <button class="btn btn-outline" onclick="refreshAdmin()" style="white-space:nowrap;margin-top:4px;">↻ Refresh</button>
         </div>
         <div class="card" id="approvals-card" style="margin-bottom:20px;display:none">
-          <div class="card-title" id="approvals-title">Pending Corrections</div>
+          <div class="card-title" id="approvals-title">Pending Approvals</div>
           <div id="approvals-body"></div>
         </div>
+
+        <div class="page-title" style="font-size:16px;margin-bottom:4px;">Occurrences</div>
+        <div class="page-sub" style="margin-bottom:16px;">Medical leave, holidays, day off and vacation — with the supporting document. The punch records live in Reports.</div>
 
         <div class="filters">
           <div class="filter-item">
@@ -943,7 +947,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
         <div id="admin-scope" class="admin-scope"></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Time</th><th>Notes</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Collaborator</th><th>Type</th><th>Date</th><th>Hours</th><th>Document / Notes</th><th>Actions</th></tr></thead>
             <tbody id="admin-body"></tbody>
           </table>
         </div>
@@ -2682,18 +2686,40 @@ function renderDailyTable(days) {
 
 function renderPunchTable(recs) {
   const tbody = document.getElementById('report-body');
-  if (!recs.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
+  const admin = isAdmin(currentUser);
+  // The admin edits punches here now, and reviews occurrences in the Admin panel
+  // — so this list is punches only for the admin. A collaborator has no Admin
+  // panel, so they keep seeing their own occurrences here too, read-only.
+  const rows = admin ? recs.filter(r => isPunchType(r.type)) : recs;
+  const th = document.getElementById('report-punch-actions-th');
+  if (th) th.style.display = admin ? '' : 'none';
+  const cols = admin ? 6 : 5;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="' + cols + '" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>';
     return;
   }
-  tbody.innerHTML = recs.map(r =>
-    '<tr>'
-    + '<td><span style="font-weight:500">' + escapeHtml(r.name) + '</span></td>'
-    + '<td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</span></td>'
-    + '<td>' + formatDate(r.date) + '</td>'
-    + '<td>' + formatTime(r.time) + '</td>'
-    + '<td>' + notesCell(r.notes, 'Doc') + '</td>'
-    + '</tr>').join('');
+  tbody.innerHTML = rows.map(function(r) {
+    const id = escapeHtml(r.id);
+    return '<tr>'
+      + '<td><span style="font-weight:500">' + escapeHtml(r.name) + '</span></td>'
+      + '<td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</span></td>'
+      + '<td>' + formatDate(r.date) + '</td>'
+      + '<td>' + formatTime(r.time) + '</td>'
+      + '<td>' + notesCell(r.notes, 'Doc') + '</td>'
+      + (admin ? '<td><span class="edit-icon" data-edit-id="' + id + '">✏️</span>'
+          + '<span class="delete-icon" data-delete-id="' + id + '">🗑</span></td>' : '')
+      + '</tr>';
+  }).join('');
+
+  if (admin) {
+    tbody.querySelectorAll('[data-edit-id]').forEach(function(el) {
+      el.addEventListener('click', function() { openEdit(this.getAttribute('data-edit-id')); });
+    });
+    tbody.querySelectorAll('[data-delete-id]').forEach(function(el) {
+      el.addEventListener('click', function() { deleteRecord(this.getAttribute('data-delete-id')); });
+    });
+  }
 }
 
 // Exports whichever view is on screen: the daily summary with the balance, or
@@ -2759,12 +2785,15 @@ function clearAdminRange() {
 }
 function adminShowAll() { clearAdminDay(); clearAdminRange(); renderAdmin(); }
 
+// The admin panel now lists occurrences only — medical leave, holidays, day
+// off, vacation — with the document and edit/delete. Punch records moved to
+// Reports, where the admin edits them, so the two screens stopped overlapping.
 function renderAdmin() {
   const fu = document.getElementById('admin-user').value;
   const day = document.getElementById('admin-day').value;   // YYYY-MM-DD, or ''
   const mm = document.getElementById('admin-month').value;
   const yy = document.getElementById('admin-year').value;
-  let recs = getRecords();
+  let recs = getRecords().filter(r => !isPunchType(r.type));   // occurrences only
   if (fu) recs = recs.filter(r => r.user === fu);
   // A single day wins; otherwise the month/year range (or everything).
   if (day) {
@@ -2779,17 +2808,19 @@ function renderAdmin() {
   if (scopeEl) {
     const where = day ? formatDate(inputDateToBr(day))
       : (mm || yy ? 'the selected period' : 'all days');
-    scopeEl.textContent = 'Showing ' + where + ' · ' + recs.length + (recs.length === 1 ? ' record' : ' records');
+    scopeEl.textContent = 'Showing ' + where + ' · ' + recs.length + (recs.length === 1 ? ' occurrence' : ' occurrences');
   }
 
   const tbody = document.getElementById('admin-body');
-  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No records found.</td></tr>'; return; }
+  if (!recs.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No occurrences registered.</td></tr>'; return; }
   tbody.innerHTML = recs.map(function(r) {
     const id = escapeHtml(r.id);
+    const w = parseWindow(r.time);
+    const hours = w ? (w.from.slice(0, 5) + '–' + w.to.slice(0, 5)) : 'Full day';
     return '<tr><td><span style="font-weight:500">' + escapeHtml(r.name) + '</span></td>'
       + '<td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</span></td>'
-      + '<td>' + formatDate(r.date) + '</td><td>' + formatTime(r.time) + '</td>'
-      + '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + notesCell(r.notes, 'Doc') + '</td>'
+      + '<td>' + formatDate(r.date) + '</td><td>' + hours + '</td>'
+      + '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + notesCell(r.notes, 'Doc') + '</td>'
       + '<td><span class="edit-icon" data-edit-id="' + id + '">✏️</span>'
       + '<span class="delete-icon" data-delete-id="' + id + '">🗑</span></td></tr>';
   }).join('');
@@ -2863,15 +2894,22 @@ async function saveEdit() {
   try { await updateRecordRemote(updated); }
   catch(e) { showToast('❌ Change not saved — check your connection.', 'error'); return; }
   closeModal('edit-modal');
-  renderAdmin();
+  refreshRecordViews();
   showToast('✅ Record updated!', 'success');
+}
+
+// An edit can now come from the Admin panel (occurrences) or from Reports
+// (punches), so refresh both — each render no-ops if its screen is not built.
+function refreshRecordViews() {
+  renderAdmin();
+  renderReport();
 }
 
 async function deleteRecord(id) {
   if (!confirm('Delete this record? This cannot be undone.')) return;
   try { await deleteRecordRemote(id); }
   catch(e) { showToast('❌ Could not delete — check your connection.', 'error'); return; }
-  renderAdmin();
+  refreshRecordViews();
   showToast('🗑 Record deleted.', 'success');
 }
 
