@@ -2463,7 +2463,10 @@ function balanceCell(seconds) {
 }
 
 function dayFlag(day) {
-  if (day.incomplete) return '<span class="day-flag">missing punch</span>';
+  // Odd number of punches: one is unpaired — either a punch is missing, or one
+  // is a duplicate. Showing the count makes it clear something is off even when
+  // the In/Out columns (first in, last out) look complete.
+  if (day.incomplete) return '<span class="day-flag" title="An odd number of punches — a punch is missing or duplicated. Open All punches to fix.">uneven punches (' + day.punches.length + ')</span>';
   if (day.fullDayOff) return '<span class="day-flag">' + escapeHtml(fullDayType(day)) + '</span>';
   if (day.hasOccurrence) {
     return '<span class="day-flag" style="color:var(--blue);background:var(--blue-dim);'
@@ -2761,7 +2764,7 @@ function exportCSV() {
                 d.justified ? formatDuration(d.justified) : '',
                 d.counts ? formatDuration(d.target) : '',
                 d.counts ? formatSigned(d.balance) : '',
-                d.incomplete ? 'missing punch'
+                d.incomplete ? 'uneven punches (' + d.punches.length + ')'
                   : d.hasOccurrence ? d.occurrences.map(function(o) {
                       const w = parseWindow(o.time);
                       return o.type + (w ? ' ' + w.from + '-' + w.to : ' (full day)');
