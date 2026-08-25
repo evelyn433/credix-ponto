@@ -2757,9 +2757,14 @@ function exportCSV() {
     kind = 'balance';
   } else if (reportView === 'daily') {
     const days = summariseDays(recs).slice().reverse();  // oldest first
-    csv = toCsv('Collaborator,Date,Clock In,Lunch Out,Lunch In,Clock Out,Worked,Justified,Target,Balance,Note',
+    // One Lunch column, matching the on-screen table: the punched window on
+    // legacy days, or the fixed hour taken off automatically on new ones.
+    csv = toCsv('Collaborator,Date,Clock In,Lunch,Clock Out,Worked,Justified,Target,Balance,Note',
       days.map(function(d) {
-        return [d.name, d.date, d.clockIn, d.lunchOut, d.lunchIn, d.clockOut,
+        const lunch = (d.lunchOut || d.lunchIn)
+          ? [d.lunchOut, d.lunchIn].filter(Boolean).join(' - ')
+          : (d.lunch ? '-' + formatDuration(d.lunch) : '');
+        return [d.name, d.date, d.clockIn, lunch, d.clockOut,
                 d.punches.length ? formatDuration(d.worked) : '',
                 d.justified ? formatDuration(d.justified) : '',
                 d.counts ? formatDuration(d.target) : '',
