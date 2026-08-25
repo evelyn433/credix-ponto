@@ -812,6 +812,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
           <div class="filter-item" id="rep-showall-item">
             <button class="btn btn-outline btn-sm" onclick="reportShowAll()">Show all months</button>
           </div>
+          <button class="btn btn-outline" id="rep-add-btn" onclick="openAdd()" style="display:none">+ Add record</button>
           <button class="btn btn-green" onclick="exportCSV()">↓ Export CSV</button>
         </div>
 
@@ -1069,8 +1070,8 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
 <!-- ══ EDIT MODAL ════════════════════════════════════════ -->
 <div class="modal-overlay" id="edit-modal">
   <div class="modal">
-    <div class="modal-title">Edit Record</div>
-    <div class="modal-sub">Make corrections to this entry</div>
+    <div class="modal-title" id="edit-modal-title">Edit Record</div>
+    <div class="modal-sub" id="edit-modal-sub">Make corrections to this entry</div>
     <input type="hidden" id="edit-id">
     <div class="modal-field">
       <label>Collaborator</label>
@@ -1112,7 +1113,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('edit-modal')">Cancel</button>
-      <button class="btn btn-green" onclick="saveEdit()">Save Changes</button>
+      <button class="btn btn-green" id="edit-save-btn" onclick="saveEdit()">Save Changes</button>
     </div>
   </div>
 </div>
@@ -1629,6 +1630,7 @@ async function initApp() {
   show('rep-month-item', false);
   show('rep-year-item', false);
   show('rep-showall-item', false);
+  show('rep-add-btn', u.admin);   // only the admin creates records from scratch
   const period = document.getElementById('rep-period');
   if (period) period.value = u.admin ? 'month' : 'week';
   fillPeriodDates(period ? period.value : 'week');   // prefill From/To for the default
@@ -2848,10 +2850,34 @@ function toggleEditTimeTo() {
   document.getElementById('edit-time-to-field').style.display = isPunch ? 'none' : 'block';
 }
 
+// The admin creates a record from scratch — a punch someone forgot, or an
+// occurrence — without waiting for a request. Same modal as editing, but with
+// an empty id, which is what tells saveEdit to insert instead of update.
+function openAdd() {
+  if (!isAdmin(currentUser)) return;
+  refreshDropdowns();
+  document.getElementById('edit-id').value = '';
+  document.getElementById('edit-user').value = '';
+  document.getElementById('edit-type').value = 'Clock In';
+  document.getElementById('edit-date').value = localDateInput();
+  document.getElementById('edit-time').value = '';
+  document.getElementById('edit-time-to').value = '';
+  document.getElementById('edit-notes').value = '';
+  document.getElementById('edit-modal-title').textContent = 'Add Record';
+  document.getElementById('edit-modal-sub').textContent = 'Create a punch or occurrence for any collaborator';
+  document.getElementById('edit-save-btn').textContent = 'Create';
+  toggleEditTimeTo();
+  openModal('edit-modal');
+}
+
 function openEdit(id) {
   const rec = getRecords().find(r => r.id === id);
   if (!rec) return;
   refreshDropdowns();
+  // Back to edit wording, in case the modal was last opened in add mode.
+  document.getElementById('edit-modal-title').textContent = 'Edit Record';
+  document.getElementById('edit-modal-sub').textContent = 'Make corrections to this entry';
+  document.getElementById('edit-save-btn').textContent = 'Save Changes';
   document.getElementById('edit-id').value = id;
   document.getElementById('edit-user').value = USERS[rec.user] ? rec.user : '';
   document.getElementById('edit-type').value = rec.type;
@@ -2897,6 +2923,20 @@ async function saveEdit() {
 
   const dateObj = new Date(dateRaw + 'T00:00:00');
   const date = dateObj.toLocaleDateString('en-GB');
+
+  // No id → create a brand new record (the admin's "+ Add record").
+  if (!id) {
+    const rec = {
+      id: genId(), user: userKey, name: USERS[userKey].name,
+      type, date, time: timeValue, notes, timestamp: new Date().toISOString()
+    };
+    try { await saveRecordRemote(rec); }
+    catch(e) { showToast('❌ Not saved — check your connection.', 'error'); return; }
+    closeModal('edit-modal');
+    refreshRecordViews();
+    showToast('✅ Record created!', 'success');
+    return;
+  }
 
   const existing = getRecords().find(r => r.id === id);
   if (!existing) return;
