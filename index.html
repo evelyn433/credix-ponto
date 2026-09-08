@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Credix · Time Tracking</title>
+<script>
+  // Apply the saved theme before the page paints, so there is no flash.
+  try { var _t = localStorage.getItem('credix_theme'); if (_t === 'light' || _t === 'dark') document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -31,6 +35,41 @@
   --text3:     #4a5568;
   --font:      'Poppins', sans-serif;
 }
+
+/* ── LIGHT THEME ──────────────────────────────────────────
+   Redefines only the structural tones (backgrounds, borders, text) plus
+   slightly deeper accents that read well on a light ground. The bright-tint
+   -dim variants and the accents-as-button-backgrounds keep working, so this
+   is one block, not a per-element rewrite. Solves the glare of pure black in
+   bright light. */
+:root[data-theme="light"] {
+  --bg:        #f2f4f8;
+  --surface:   #ffffff;
+  --surface2:  #eef1f6;
+  --surface3:  #e5e9f0;
+  --border:    #e3e7ee;
+  --border2:   #d0d6e0;
+  --green:     #0aa05c;
+  --red:       #e11d48;
+  --gold:      #c98a04;
+  --blue:      #2f7ff0;
+  --orange:    #e06a1a;
+  --purple:    #7c3aed;
+  --text:      #1b2030;
+  --text2:     #586173;
+  --text3:     #8b95a6;
+}
+
+/* The floating theme toggle, visible on every screen. */
+.theme-toggle {
+  position: fixed; top: 14px; right: 14px; z-index: 2000;
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--border2); background: var(--surface2);
+  color: var(--text); font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover { border-color: var(--green); }
 
 * { margin:0; padding:0; box-sizing:border-box; }
 
@@ -566,6 +605,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
 </style>
 </head>
 <body>
+<button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Switch light / dark" aria-label="Switch theme">🌙</button>
 
 <!-- ══ LOGIN ══════════════════════════════════════════════ -->
 <div id="login-screen">
@@ -3042,6 +3082,22 @@ function typeIcon(type) {
                 'Day Off':'☀️', 'Medical Leave':'🏥', 'Holiday':'🎉', 'Vacation':'✈️' };
   return map[type] || '•';
 }
+
+// ── Light / dark theme ──────────────────────────────────
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+function applyThemeIcon() {
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = currentTheme() === 'light' ? '☀️' : '🌙';
+}
+function toggleTheme() {
+  const next = currentTheme() === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('credix_theme', next); } catch (e) {}
+  applyThemeIcon();
+}
+applyThemeIcon();
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
