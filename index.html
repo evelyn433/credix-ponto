@@ -59,6 +59,10 @@
   --text2:     #586173;
   --text3:     #8b95a6;
 }
+/* The logo is a monochrome (black/white) PNG, so it would vanish on a light
+   background. Inverting flips white↔black — no colour to distort — so the mark
+   shows in dark on the light theme. */
+:root[data-theme="light"] img[alt="Credix"] { filter: invert(1); }
 
 /* The floating theme toggle, visible on every screen. */
 .theme-toggle {
