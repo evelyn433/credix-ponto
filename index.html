@@ -456,10 +456,12 @@ tr:hover td { background: var(--surface2); }
 .filter-item select:focus, .filter-item input:focus { border-color: var(--green); }
 .filter-item select option { background: var(--surface2); }
 
-/* The native calendar/clock icon renders dark on our dark inputs and was almost
-   invisible. color-scheme: dark tells the browser to draw the icon (and its
-   popup) light instead. */
+/* The native calendar/clock icon renders in the input's own colour scheme, so
+   it must follow the theme: light icon on the dark theme (the default), dark
+   icon on the light theme — otherwise it stays white and vanishes on light. */
 input[type="date"], input[type="time"] { color-scheme: dark; }
+:root[data-theme="light"] input[type="date"],
+:root[data-theme="light"] input[type="time"] { color-scheme: light; }
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator { opacity: 0.85; cursor: pointer; }
 input[type="date"]:hover::-webkit-calendar-picker-indicator,
