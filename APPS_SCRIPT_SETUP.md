@@ -9,7 +9,7 @@ que conversa com ela é um Apps Script publicado como Web App.
 |---|---|
 | `Records` | um registro por linha — batida de ponto ou ocorrência |
 | ↳ | numa ocorrência, a coluna `time` guarda a janela coberta (`09:00:00-10:00:00`) ou fica vazia para o dia inteiro |
-| `Users` | colaboradores, quem é admin, e o hash da senha e da palavra de segurança de cada um |
+| `Users` | colaboradores, quem é admin, o hash da senha e da palavra de segurança de cada um, e (opcional) o e-mail para o relatório mensal |
 | `Requests` | pedidos pendentes — correção de ponto ou ocorrência com horário — com quem pediu, o motivo, o link do documento e quem aprovou |
 | `Settings` | legado, esvaziada na migração — antes guardava a senha única do admin |
 
@@ -178,6 +178,30 @@ aba `Records`. Duas coisas evitam desperdício:
 - **A migração da senha antiga é marcada numa propriedade do script.** Antes ela
   lia a aba `Settings` em toda requisição que olhasse um usuário, para descobrir
   que não havia nada a migrar.
+
+## Relatório mensal por e-mail
+
+Todo mês, o script pode mandar para cada colaborador um CSV com as batidas e o
+banco de horas do mês que fechou. Roda por um **gatilho de tempo** — não depende
+de ninguém abrir o app.
+
+Para ligar (uma vez):
+
+1. Na aba `Users`, acrescente uma coluna com o cabeçalho **`email`** e preencha o
+   e-mail de cada pessoa. Quem ficar sem e-mail simplesmente não recebe. Esse
+   e-mail **nunca sai no `getUsers`** — é lido só aqui no servidor.
+2. No editor do Apps Script, selecione a função **`setupMonthlyEmails`** e clique
+   em **▶ Run**. Ela cria o gatilho (todo dia 1º, por volta das 7h). Rodar de novo
+   não duplica.
+3. O Google vai pedir para **autorizar** o script a enviar e-mail (a tela de "app
+   não verificado" → *Avançado › Ir para o projeto*). É uma vez só.
+
+O e-mail sai da conta dona do script, então para o time chega "de você". Cada um
+recebe **só os próprios dados**. O cálculo do saldo é o mesmo do app (meta 8h48,
+1h de almoço descontada quando não foi batida, ocorrência com janela conta como
+trabalhada, dia com número ímpar de batidas fica de fora). Para testar sem
+esperar a virada do mês, rode **`monthlyReport`** direto pelo editor — ela usa
+sempre o mês anterior ao de hoje.
 
 ## Cuidados que o backend toma
 

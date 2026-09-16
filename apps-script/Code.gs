@@ -14,7 +14,7 @@
 
 const SHEET_NAME = "Records";
 const RECORD_COLUMNS = ["id", "user", "name", "type", "date", "time", "notes", "timestamp"];
-const USER_COLUMNS = ["key", "name", "admin", "pwdHash", "wordHash"];
+const USER_COLUMNS = ["key", "name", "admin", "pwdHash", "wordHash", "email"];
 
 // Pedidos de correção de ponto. Ficam aqui e não em Records, para um pedido
 // pendente não entrar em nenhum cálculo de horas antes de ser aprovado. Ao
@@ -271,7 +271,8 @@ function handleRequest(e) {
           name: String(u.name).trim(),
           admin: u.admin === true,
           pwdHash: old.pwdHash || "",
-          wordHash: old.wordHash || ""
+          wordHash: old.wordHash || "",
+          email: old.email || ""
         };
       });
       writeUsers_(ss, merged);
@@ -598,7 +599,9 @@ function readUsers_(ss) {
         name: String(pick("name", 1) || pick("key", 0)).trim(),
         admin: TRUTHY.indexOf(String(pick("admin", 2)).trim().toLowerCase()) > -1,
         pwdHash: String(pick("pwdHash", 3) || "").trim(),
-        wordHash: String(pick("wordHash", 4) || "").trim()
+        wordHash: String(pick("wordHash", 4) || "").trim(),
+        // Only used server-side (the monthly report). Never returned by getUsers.
+        email: String(pick("email", -1) || "").trim()
       };
     });
 
@@ -607,7 +610,7 @@ function readUsers_(ss) {
 }
 
 function cloneUser_(u) {
-  return { key: u.key, name: u.name, admin: u.admin, pwdHash: u.pwdHash || "", wordHash: u.wordHash || "" };
+  return { key: u.key, name: u.name, admin: u.admin, pwdHash: u.pwdHash || "", wordHash: u.wordHash || "", email: u.email || "" };
 }
 
 // A senha do admin morava na aba Settings, quando era uma só para todos.
@@ -660,7 +663,8 @@ function writeUsers_(ss, users) {
       asText_(u.name),
       u.admin === true,
       asText_(u.pwdHash || ""),
-      asText_(u.wordHash || "")
+      asText_(u.wordHash || ""),
+      asText_(u.email || "")
     ]);
   });
   sh.setFrozenRows(1);
@@ -681,4 +685,175 @@ function qualPlanilha() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   Logger.log("Nome: " + ss.getName());
   Logger.log("Link: " + ss.getUrl());
+}
+
+// ═══════════════════════════════════════════════════════════
+// RELATÓRIO MENSAL POR E-MAIL
+// ═══════════════════════════════════════════════════════════
+// Todo mês manda, para cada colaborador com e-mail na aba Users, um CSV com as
+// batidas e o banco de horas do mês que acabou. Roda por um gatilho de tempo —
+// não depende do app aberto. O cálculo do saldo reproduz o do app: meta 8h48,
+// 1h de almoço descontada quando não foi batida, ocorrência com janela conta
+// como trabalhada, dia com número ímpar de batidas não entra no saldo.
+const DAILY_TARGET_SECONDS_BE = 8 * 3600 + 48 * 60;
+const LUNCH_SECONDS_BE = 3600;
+
+function timeKeyBE_(t) {
+  const p = String(t || "").split(":");
+  return (parseInt(p[0], 10) || 0) * 3600 + (parseInt(p[1], 10) || 0) * 60 + (parseInt(p[2], 10) || 0);
+}
+function dateKeyBE_(d) {
+  const p = String(d || "").split("/");   // DD/MM/YYYY
+  return p.length === 3 ? parseInt(p[2], 10) * 10000 + parseInt(p[1], 10) * 100 + parseInt(p[0], 10) : 0;
+}
+function isPunchTypeBE_(type) { return PUNCH_TYPES_BE.indexOf(String(type)) > -1; }
+
+// A célula pode voltar como Date se algum dia foi digitado direto na planilha,
+// em vez de gravado como texto pelo app. Normaliza para o formato do app.
+function brDateBE_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  return String(v == null ? "" : v).trim();
+}
+function hmsBE_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), "HH:mm:ss");
+  return String(v == null ? "" : v).trim();
+}
+
+function workedSecondsBE_(punches) {
+  const sorted = punches.slice().sort(function (a, b) { return timeKeyBE_(a.time) - timeKeyBE_(b.time); });
+  let total = 0, openAt = null;
+  sorted.forEach(function (r) {
+    const t = timeKeyBE_(r.time);
+    if (r.type === "Clock In" || r.type === "Lunch In") { if (openAt === null) openAt = t; }
+    else if (openAt !== null) { total += Math.max(0, t - openAt); openAt = null; }
+  });
+  return total;
+}
+function lunchOffBE_(punches) {
+  const punched = punches.some(function (r) { return r.type === "Lunch Out" || r.type === "Lunch In"; });
+  if (punched) return 0;
+  return workedSecondsBE_(punches) > 0 ? LUNCH_SECONDS_BE : 0;
+}
+function windowSecondsBE_(time) {
+  const w = parseWindowBE_(time);
+  return w ? (timeKeyBE_(w.to) - timeKeyBE_(w.from)) : 0;
+}
+function formatDurationBE_(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h + "h " + (m < 10 ? "0" + m : m) + "m";
+}
+function formatSignedBE_(s) { return (s < 0 ? "-" : "+") + formatDurationBE_(Math.abs(s)); }
+
+function summariseUserDaysBE_(records) {
+  const byDate = {};
+  records.forEach(function (r) {
+    const d = byDate[r.date] || (byDate[r.date] = { punches: [], occurrences: [] });
+    (isPunchTypeBE_(r.type) ? d.punches : d.occurrences).push(r);
+  });
+  return Object.keys(byDate).map(function (date) {
+    const day = byDate[date];
+    const punches = day.punches;
+    const first = function (t) { for (var i = 0; i < punches.length; i++) if (punches[i].type === t) return punches[i].time; return ""; };
+    const last = function (t) { var v = ""; punches.forEach(function (p) { if (p.type === t) v = p.time; }); return v; };
+    const worked = Math.max(0, workedSecondsBE_(punches) - lunchOffBE_(punches));
+    const justified = day.occurrences.reduce(function (s, o) { return s + windowSecondsBE_(o.time); }, 0);
+    const fullDayOff = day.occurrences.some(function (o) { return !parseWindowBE_(o.time); });
+    const incomplete = punches.length > 0 && punches.length % 2 === 1;
+    const counts = !fullDayOff && !incomplete && (punches.length > 0 || justified > 0);
+    return {
+      date: date, clockIn: first("Clock In"), clockOut: last("Clock Out"),
+      lunchOut: first("Lunch Out"), lunchIn: first("Lunch In"), lunch: lunchOffBE_(punches),
+      worked: worked, justified: justified, punchCount: punches.length,
+      counts: counts, incomplete: incomplete, fullDayOff: fullDayOff, occurrences: day.occurrences,
+      target: counts ? DAILY_TARGET_SECONDS_BE : 0,
+      balance: counts ? (worked + justified - DAILY_TARGET_SECONDS_BE) : 0
+    };
+  }).sort(function (a, b) { return dateKeyBE_(a.date) - dateKeyBE_(b.date); });
+}
+
+function csvCellBE_(v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; }
+
+function buildUserCsvBE_(name, days) {
+  const lines = ["Collaborator,Date,Clock In,Lunch,Clock Out,Worked,Justified,Target,Balance,Note"];
+  days.forEach(function (d) {
+    const lunch = (d.lunchOut || d.lunchIn) ? [d.lunchOut, d.lunchIn].filter(Boolean).join(" - ")
+      : (d.lunch ? "-" + formatDurationBE_(d.lunch) : "");
+    const note = d.incomplete ? "uneven punches (" + d.punchCount + ")"
+      : d.fullDayOff ? d.occurrences.map(function (o) { const w = parseWindowBE_(o.time); return o.type + (w ? " " + w.from + "-" + w.to : " (full day)"); }).join(" / ")
+      : "";
+    lines.push([name, d.date, d.clockIn, lunch, d.clockOut,
+      d.punchCount ? formatDurationBE_(d.worked) : "",
+      d.justified ? formatDurationBE_(d.justified) : "",
+      d.counts ? formatDurationBE_(d.target) : "",
+      d.counts ? formatSignedBE_(d.balance) : "",
+      note].map(csvCellBE_).join(","));
+  });
+  const counted = days.filter(function (d) { return d.counts; });
+  const worked = counted.reduce(function (s, d) { return s + d.worked; }, 0);
+  const justified = counted.reduce(function (s, d) { return s + d.justified; }, 0);
+  const expected = counted.reduce(function (s, d) { return s + d.target; }, 0);
+  const balance = counted.reduce(function (s, d) { return s + d.balance; }, 0);
+  lines.push([name, "TOTAL — " + counted.length + " dia(s)", "", "", "",
+    formatDurationBE_(worked), formatDurationBE_(justified), formatDurationBE_(expected),
+    formatSignedBE_(balance), ""].map(csvCellBE_).join(","));
+  return { csv: "\uFEFF" + lines.join("\n"), worked: worked, balance: balance, daysCounted: counted.length };
+}
+
+const MONTH_NAMES_BE = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+// O mês a reportar é o que acabou de fechar.
+function previousMonthBE_(now) {
+  const last = new Date(now.getFullYear(), now.getMonth(), 1);
+  last.setDate(0);   // último dia do mês anterior
+  return { month: last.getMonth() + 1, year: last.getFullYear() };
+}
+
+// Chamada pelo gatilho mensal.
+function monthlyReport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const users = readUsers_(ss);
+  const records = readRecords_(getRecordSheet_(ss));
+  records.forEach(function (r) { r.date = brDateBE_(r.date); r.time = hmsBE_(r.time); });
+
+  const target = previousMonthBE_(new Date());
+  const mm = target.month < 10 ? "0" + target.month : String(target.month);
+  const yy = String(target.year);
+  const label = MONTH_NAMES_BE[target.month] + "/" + target.year;
+  let sent = 0;
+
+  users.forEach(function (u) {
+    if (!u.email || u.email.indexOf("@") === -1) return;           // sem endereço, pula
+    const mine = records.filter(function (r) {
+      if (String(r.user) !== u.key) return false;
+      const p = String(r.date).split("/");                         // DD/MM/YYYY
+      return p.length === 3 && p[1] === mm && p[2] === yy;
+    });
+    if (!mine.length) return;                                       // nada no mês, não manda
+
+    const built = buildUserCsvBE_(u.name, summariseUserDaysBE_(mine));
+    const blob = Utilities.newBlob(built.csv, "text/csv", "ponto_" + u.key + "_" + mm + "-" + yy + ".csv");
+    const body = "Oi " + u.name + ",\n\n"
+      + "Segue em anexo o seu relatório de ponto de " + label + " (CSV).\n\n"
+      + "Resumo do mês:\n"
+      + "• Dias contados: " + built.daysCounted + "\n"
+      + "• Horas trabalhadas: " + formatDurationBE_(built.worked) + "\n"
+      + "• Saldo do mês: " + formatSignedBE_(built.balance) + "\n\n"
+      + "Qualquer divergência, fale com o Enzo.\n\n— Credix Time Tracking";
+    MailApp.sendEmail({ to: u.email, subject: "Seu ponto — " + label, body: body,
+      attachments: [blob], name: "Credix Time Tracking" });
+    sent++;
+    Logger.log("Relatório enviado para " + u.email + " (" + label + ")");
+  });
+  Logger.log(sent + " relatório(s) enviado(s) referente(s) a " + label + ".");
+}
+
+// Rode UMA vez no editor (▶ Run) para criar o gatilho mensal (dia 1, ~7h).
+// Reexecutar não duplica — remove o gatilho anterior desta função antes.
+function setupMonthlyEmails() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === "monthlyReport") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("monthlyReport").timeBased().onMonthDay(1).atHour(7).create();
+  Logger.log("Gatilho mensal criado: monthlyReport, todo dia 1 por volta das 7h.");
 }
