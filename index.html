@@ -2527,6 +2527,16 @@ function fullDayType(day) {
   return full ? full.type : (day.occurrences[0] ? day.occurrences[0].type : '');
 }
 
+// The justification (and 📎 document) the person wrote on an occurrence. Shown
+// under the type in the daily view so the admin can read it there, not only in
+// the Admin panel.
+function occNoteHtml(day) {
+  const notes = (day.occurrences || []).map(o => String(o.notes || '').trim()).filter(Boolean);
+  if (!notes.length) return '';
+  return '<div style="font-size:11px;color:var(--text2);font-weight:400;margin-top:3px">'
+    + notes.map(n => notesCell(n, 'doc')).join(' · ') + '</div>';
+}
+
 // ═══════════════════════════════════════════════════
 // REPORT
 // ═══════════════════════════════════════════════════
@@ -2735,7 +2745,7 @@ function renderDailyTable(days) {
       : (d.lunch ? '−' + formatDuration(d.lunch) : '—');
     return '<tr>'
       + '<td><span style="font-weight:500">' + escapeHtml(d.name) + '</span></td>'
-      + '<td>' + formatDate(d.date) + ' ' + dayFlag(d) + '</td>'
+      + '<td>' + formatDate(d.date) + ' ' + dayFlag(d) + occNoteHtml(d) + '</td>'
       + '<td>' + formatTime(d.clockIn) + '</td>'
       + '<td style="white-space:nowrap">' + lunch + '</td>'
       + '<td>' + formatTime(d.clockOut) + '</td>'
