@@ -2828,7 +2828,8 @@ function exportCSV() {
                 d.incomplete ? 'uneven punches (' + d.punches.length + ')'
                   : d.hasOccurrence ? d.occurrences.map(function(o) {
                       const w = parseWindow(o.time);
-                      return o.type + (w ? ' ' + w.from + '-' + w.to : ' (full day)');
+                      const note = String(o.notes || '').trim();
+                      return o.type + (w ? ' ' + w.from + '-' + w.to : ' (full day)') + (note ? ' — ' + note : '');
                     }).join(' / ')
                   : ''];
       }));

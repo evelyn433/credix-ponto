@@ -778,9 +778,13 @@ function buildUserCsvBE_(name, days) {
   days.forEach(function (d) {
     const lunch = (d.lunchOut || d.lunchIn) ? [d.lunchOut, d.lunchIn].filter(Boolean).join(" - ")
       : (d.lunch ? "-" + formatDurationBE_(d.lunch) : "");
+    const occNote = d.occurrences.map(function (o) {
+      const w = parseWindowBE_(o.time);
+      const n = String(o.notes || "").trim();
+      return o.type + (w ? " " + w.from + "-" + w.to : " (full day)") + (n ? " — " + n : "");
+    }).join(" / ");
     const note = d.incomplete ? "uneven punches (" + d.punchCount + ")"
-      : d.fullDayOff ? d.occurrences.map(function (o) { const w = parseWindowBE_(o.time); return o.type + (w ? " " + w.from + "-" + w.to : " (full day)"); }).join(" / ")
-      : "";
+      : (d.occurrences.length ? occNote : "");
     lines.push([name, d.date, d.clockIn, lunch, d.clockOut,
       d.punchCount ? formatDurationBE_(d.worked) : "",
       d.justified ? formatDurationBE_(d.justified) : "",
