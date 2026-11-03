@@ -2404,6 +2404,7 @@ async function reviewCorrection(id, decision) {
   const what = req.action === 'occurrence' ? 'occurrence' : 'correction';
   if (decision === 'reject' && !confirm('Reject ' + req.name + '\u2019s ' + what + '?')) return;
 
+  showToast('⏳ Saving…', 'success');
   try {
     await apiPost('reviewRequest', {
       id: id, decision: decision,
@@ -2414,11 +2415,17 @@ async function reviewCorrection(id, decision) {
     showToast('❌ Could not save the decision — ' + (e.message || 'try again.'), 'error');
     return;
   }
-  // an approval wrote a punch, so the records changed too
-  recordsLoadedAt = 0;
-  await Promise.all([loadRecords(true), loadRequests(true)]);
+  // The write already applied the punch server-side, so confirm and drop the
+  // row from the queue right away; the two reads below refresh the tables in the
+  // background instead of making the admin wait on them before seeing anything.
+  req.status = decision === 'approve' ? 'approved' : 'rejected';
+  req.reviewedBy = currentUser;
   renderApprovals();
-  renderAdmin();
+
+  recordsLoadedAt = 0;
+  Promise.all([loadRecords(true), loadRequests(true)])
+    .then(function() { renderApprovals(); renderAdmin(); })
+    .catch(function() {});
   showToast(decision === 'approve' ? '✅ Approved and applied.' : '✕ Rejected.', 'success');
 }
 
