@@ -25,6 +25,23 @@ const REQUEST_COLUMNS = ["id", "user", "name", "action", "targetId", "type", "da
 const PUNCH_TYPES_BE = ["Clock In", "Lunch Out", "Lunch In", "Clock Out"];
 const OCCURRENCE_TYPES_BE = ["Medical Leave", "Holiday", "Day Off", "Vacation"];
 
+// Login and the app's refresh ask for only this window, so the payload stays
+// small as the Records sheet grows over the months. The full history is fetched
+// on demand when someone opens an older period in the reports.
+const RECENT_DAYS_BE = 75;
+
+// Keeps records dated within the last `days`, plus anything in the future
+// (planned vacations) and anything with an unreadable date (never silently drop).
+function recentRecords_(records, days) {
+  const c = new Date();
+  c.setDate(c.getDate() - days);
+  const cutoff = c.getFullYear() * 10000 + (c.getMonth() + 1) * 100 + c.getDate();
+  return records.filter(function (r) {
+    const k = dateKeyBE_(brDateBE_(r.date));
+    return k === 0 || k >= cutoff;
+  });
+}
+
 // Uma ocorrência de dia inteiro é neutra no saldo e é registrada direto. Uma com
 // janela de horário credita horas trabalhadas, então passa por aprovação — é da
 // mesma natureza de uma correção de batida.
@@ -91,7 +108,10 @@ function handleRequest(e) {
       if (!authUser_(readUsers_(ss), body)) {
         return json_({ success: false, authRequired: true, error: "Sign in required to read the records." });
       }
-      return json_({ success: true, records: readRecords_(sheet()) });
+      // The app asks for just the recent window to keep login/refresh light as the
+      // sheet grows; it fetches the whole history only when an old period is opened.
+      const all = readRecords_(sheet());
+      return json_({ success: true, records: body.recent ? recentRecords_(all, RECENT_DAYS_BE) : all });
     }
 
     if (action === "addRecord") {
@@ -292,11 +312,13 @@ function handleRequest(e) {
       }
       // Os registros vão junto: a sessão acabou de ser autenticada, então isso
       // poupa uma ida ao servidor logo depois — e cada ida custa ~1-2 segundos.
+      // Só a janela recente, para o login ser leve mesmo com a planilha grande; o
+      // app busca o histórico completo só quando abre um período antigo.
       const requests = readRequests_(ss);
       return json_({
         success: true,
         user: { key: user.key, name: user.name, admin: user.admin, hasWord: !!user.wordHash },
-        records: readRecords_(sheet()),
+        records: recentRecords_(readRecords_(sheet()), RECENT_DAYS_BE),
         requests: user.admin ? requests : requests.filter(r => r.user === user.key)
       });
     }

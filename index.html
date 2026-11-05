@@ -1381,6 +1381,46 @@ let recordsPromise = null;
 let recordsLoadedAt = 0;
 const RECORDS_FRESH_MS = 30000;
 
+// Login and refreshes carry only the recent window so they stay fast as the
+// sheet grows. recordsComplete becomes true once the full history is fetched —
+// which happens lazily, the first time a report or the admin panel reaches past
+// the recent window. RECENT_DAYS_FE is a touch under the backend's 75 so a
+// window near the edge triggers the full fetch rather than showing partial data.
+let recordsComplete = false;
+const RECENT_DAYS_FE = 70;
+
+function recentCutoffDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - RECENT_DAYS_FE);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+let allRecordsPromise = null;
+function ensureAllRecords() {
+  if (recordsComplete) return Promise.resolve(true);
+  if (allRecordsPromise) return allRecordsPromise;
+  allRecordsPromise = fetchAllRecords().then(function(ok) {
+    allRecordsPromise = null;
+    if (ok) recordsComplete = true;
+    return ok;
+  });
+  return allRecordsPromise;
+}
+
+async function fetchAllRecords() {
+  try {
+    if (!currentUser || !sessionPwdHash) return false;
+    const res = await apiRead('getRecords', { user: currentUser, pwdHash: sessionPwdHash });
+    if (!res || !res.success || !Array.isArray(res.records)) throw new Error('Invalid response');
+    adoptRecords(res.records);
+    return true;
+  } catch(e) {
+    console.error('[credix-ponto] full getRecords failed:', e);
+    return false;
+  }
+}
+
 function loadRecords(quiet) {
   if (recordsPromise) return recordsPromise;
   recordsPromise = fetchRecords(quiet).then(function(ok) {
@@ -1419,7 +1459,8 @@ async function fetchRecords(quiet) {
   try {
     // Reading is authenticated now, so there is nothing to fetch before login.
     if (!currentUser || !sessionPwdHash) return false;
-    const res = await apiRead('getRecords', { user: currentUser, pwdHash: sessionPwdHash });
+    // Light refresh while we only hold the recent window; full once we've gone complete.
+    const res = await apiRead('getRecords', { user: currentUser, pwdHash: sessionPwdHash, recent: !recordsComplete });
     if (!res || !res.success || !Array.isArray(res.records)) throw new Error('Invalid response');
     adoptRecords(res.records);
     return true;
@@ -2679,6 +2720,16 @@ function onReportDateEdit() {
   renderReport();
 }
 
+// True when the report's From/To window reaches older than the loaded recent
+// window (or is open-ended), so the full history must be fetched first.
+function reportNeedsHistory() {
+  const from = (document.getElementById('rep-from') || {}).value;
+  if (!from) return true;   // all-time / open start
+  const p = String(from).split('-');   // YYYY-MM-DD
+  if (p.length !== 3) return true;
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])) < recentCutoffDate();
+}
+
 function reportRecords() {
   let recs = getRecords();
   if (isAdmin(currentUser)) {
@@ -2695,6 +2746,11 @@ function reportRecords() {
 }
 
 function renderReport() {
+  // Only the recent window is loaded at first; if an older period is selected,
+  // pull the full history once and re-render when it lands.
+  if (!recordsComplete && reportNeedsHistory()) {
+    ensureAllRecords().then(function(ok) { if (ok) renderReport(); });
+  }
   const recs = sortRecords(reportRecords(), 'desc');
   const days = summariseDays(recs);
   const counted = days.filter(d => d.counts);
@@ -2872,7 +2928,32 @@ function adminShowAll() { clearAdminDay(); clearAdminRange(); renderAdmin(); }
 // The admin panel now lists occurrences only — medical leave, holidays, day
 // off, vacation — with the document and edit/delete. Punch records moved to
 // Reports, where the admin edits them, so the two screens stopped overlapping.
+// True when the admin occurrences filter reaches past the loaded recent window
+// — a specific old day/month, or "all days" (no filter) — so the full history
+// is needed.
+function adminNeedsHistory() {
+  const day = (document.getElementById('admin-day') || {}).value;
+  const mm = (document.getElementById('admin-month') || {}).value;
+  const yy = (document.getElementById('admin-year') || {}).value;
+  if (day) {
+    const p = String(day).split('-');
+    if (p.length !== 3) return true;
+    return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])) < recentCutoffDate();
+  }
+  if (mm || yy) {
+    const y = yy ? Number(yy) : new Date().getFullYear();
+    const m = mm ? Number(mm) : 12;
+    return new Date(y, m, 0) < recentCutoffDate();   // last day of that month
+  }
+  return true;   // no filter = all days
+}
+
 function renderAdmin() {
+  // Occurrences older than the recent window need the full history — fetch it
+  // once and re-render when it lands.
+  if (!recordsComplete && adminNeedsHistory()) {
+    ensureAllRecords().then(function(ok) { if (ok) renderAdmin(); });
+  }
   const fu = document.getElementById('admin-user').value;
   const day = document.getElementById('admin-day').value;   // YYYY-MM-DD, or ''
   const mm = document.getElementById('admin-month').value;
@@ -3284,7 +3365,9 @@ async function attemptLogin() {
   if (!res || !res.user) { setLoginBusy(false); err.textContent = 'Could not sign in — please try again.'; return; }
 
   sessionPwdHash = pwdHash;
-  // login already returned the records and the corrections, so the app opens filled
+  // login already returned the records and the corrections, so the app opens filled.
+  // Those are the recent window only — a new session starts light; history loads lazily.
+  recordsComplete = false;
   if (Array.isArray(res.records)) adoptRecords(res.records);
   if (Array.isArray(res.requests)) {
     requestsAvailable = true;
