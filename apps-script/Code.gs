@@ -1,3 +1,10 @@
+/**
+ * @OnlyCurrentDoc
+ *
+ * Restringe o acesso do script à planilha à qual ele está vinculado
+ * (escopo spreadsheets.currentonly), em vez de todas as planilhas do Drive.
+ * O script só usa SpreadsheetApp.getActiveSpreadsheet(), nunca openById/openByUrl.
+ */
 // ═══════════════════════════════════════════════════════════
 // CREDIX TIME TRACKING — Google Apps Script Backend
 // ═══════════════════════════════════════════════════════════
