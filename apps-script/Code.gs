@@ -723,7 +723,8 @@ function qualPlanilha() {
 // batidas e o banco de horas do mês que acabou. Roda por um gatilho de tempo —
 // não depende do app aberto. O cálculo do saldo reproduz o do app: meta 8h48,
 // 1h de almoço descontada quando não foi batida, ocorrência com janela conta
-// como trabalhada, dia com número ímpar de batidas não entra no saldo.
+// como trabalhada, dia com número ímpar de batidas não entra no saldo, feriado
+// não tem meta (hora trabalhada nele é extra).
 const DAILY_TARGET_SECONDS_BE = 8 * 3600 + 48 * 60;
 const LUNCH_SECONDS_BE = 3600;
 
@@ -773,13 +774,61 @@ function formatDurationBE_(s) {
 }
 function formatSignedBE_(s) { return (s < 0 ? "-" : "+") + formatDurationBE_(Math.abs(s)); }
 
-function summariseUserDaysBE_(records) {
+// ── Feriados ──────────────────────────────────────────────
+// Nacionais + cidade/estado de São Paulo, aplicados sozinhos: dia de feriado
+// não tem meta (não gera débito) e hora trabalhada nele é extra. Corpus Christi,
+// Carnaval e Quarta de Cinzas ficam de fora de propósito. Manter igual ao
+// FIXED_HOLIDAYS do index.html.
+const FIXED_HOLIDAYS_BE = {
+  "01/01": "Confraternização Universal",
+  "25/01": "Aniversário de São Paulo",
+  "21/04": "Tiradentes",
+  "01/05": "Dia do Trabalho",
+  "09/07": "Revolução Constitucionalista",
+  "07/09": "Independência do Brasil",
+  "12/10": "Nossa Senhora Aparecida",
+  "02/11": "Finados",
+  "15/11": "Proclamação da República",
+  "20/11": "Consciência Negra",
+  "25/12": "Natal"
+};
+
+function easterDateBE_(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, month - 1, day);
+}
+
+// { "DD/MM/YYYY": nome } de um ano.
+function holidaysOfBE_(year) {
+  const map = {};
+  Object.keys(FIXED_HOLIDAYS_BE).forEach(function (k) { map[k + "/" + year] = FIXED_HOLIDAYS_BE[k]; });
+  const gf = easterDateBE_(year); gf.setDate(gf.getDate() - 2);
+  const p = function (n) { return n < 10 ? "0" + n : String(n); };
+  map[p(gf.getDate()) + "/" + p(gf.getMonth() + 1) + "/" + year] = "Sexta-feira Santa";
+  return map;
+}
+
+function holidayNameBE_(brDate) {
+  const p = String(brDate || "").split("/");
+  if (p.length !== 3) return "";
+  return holidaysOfBE_(parseInt(p[2], 10))[brDate] || "";
+}
+
+// period opcional ({month, year}): acrescenta uma linha "Holiday" para cada
+// feriado em dia útil do mês que não tem registro, só para aparecer no CSV.
+function summariseUserDaysBE_(records, period) {
   const byDate = {};
   records.forEach(function (r) {
     const d = byDate[r.date] || (byDate[r.date] = { punches: [], occurrences: [] });
     (isPunchTypeBE_(r.type) ? d.punches : d.occurrences).push(r);
   });
-  return Object.keys(byDate).map(function (date) {
+  const days = Object.keys(byDate).map(function (date) {
     const day = byDate[date];
     const punches = day.punches;
     const first = function (t) { for (var i = 0; i < punches.length; i++) if (punches[i].type === t) return punches[i].time; return ""; };
@@ -789,15 +838,31 @@ function summariseUserDaysBE_(records) {
     const fullDayOff = day.occurrences.some(function (o) { return !parseWindowBE_(o.time); });
     const incomplete = punches.length > 0 && punches.length % 2 === 1;
     const counts = !fullDayOff && !incomplete && (punches.length > 0 || justified > 0);
+    const holiday = holidayNameBE_(date);
+    const target = counts && !holiday ? DAILY_TARGET_SECONDS_BE : 0;   // feriado: tudo é extra
     return {
       date: date, clockIn: first("Clock In"), clockOut: last("Clock Out"),
       lunchOut: first("Lunch Out"), lunchIn: first("Lunch In"), lunch: lunchOffBE_(punches),
       worked: worked, justified: justified, punchCount: punches.length,
       counts: counts, incomplete: incomplete, fullDayOff: fullDayOff, occurrences: day.occurrences,
-      target: counts ? DAILY_TARGET_SECONDS_BE : 0,
-      balance: counts ? (worked + justified - DAILY_TARGET_SECONDS_BE) : 0
+      holiday: holiday, target: target,
+      balance: counts ? (worked + justified - target) : 0
     };
-  }).sort(function (a, b) { return dateKeyBE_(a.date) - dateKeyBE_(b.date); });
+  });
+
+  if (period) {
+    const map = holidaysOfBE_(period.year);
+    Object.keys(map).forEach(function (br) {
+      const p = br.split("/");
+      if (parseInt(p[1], 10) !== period.month || byDate[br]) return;
+      const wd = new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10)).getDay();
+      if (wd === 0 || wd === 6) return;
+      days.push({ date: br, clockIn: "", clockOut: "", lunchOut: "", lunchIn: "", lunch: 0,
+        worked: 0, justified: 0, punchCount: 0, counts: false, incomplete: false,
+        fullDayOff: false, occurrences: [], holiday: map[br], target: 0, balance: 0 });
+    });
+  }
+  return days.sort(function (a, b) { return dateKeyBE_(a.date) - dateKeyBE_(b.date); });
 }
 
 function csvCellBE_(v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; }
@@ -813,7 +878,9 @@ function buildUserCsvBE_(name, days) {
       return o.type + (w ? " " + w.from + "-" + w.to : " (full day)") + (n ? " — " + n : "");
     }).join(" / ");
     const note = d.incomplete ? "uneven punches (" + d.punchCount + ")"
-      : (d.occurrences.length ? occNote : "");
+      : d.occurrences.length ? occNote
+      : d.holiday ? "Holiday — " + d.holiday + (d.punchCount ? " (worked hours count as extra)" : "")
+      : "";
     lines.push([name, d.date, d.clockIn, lunch, d.clockOut,
       d.punchCount ? formatDurationBE_(d.worked) : "",
       d.justified ? formatDurationBE_(d.justified) : "",
@@ -864,7 +931,7 @@ function monthlyReport() {
     });
     if (!mine.length) return;                                       // nada no mês, não manda
 
-    const built = buildUserCsvBE_(u.name, summariseUserDaysBE_(mine));
+    const built = buildUserCsvBE_(u.name, summariseUserDaysBE_(mine, target));
     const blob = Utilities.newBlob(built.csv, "text/csv", "ponto_" + u.key + "_" + mm + "-" + yy + ".csv");
     const body = "Oi " + u.name + ",\n\n"
       + "Segue em anexo o seu relatório de ponto de " + label + " (CSV).\n\n"

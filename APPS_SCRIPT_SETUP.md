@@ -179,6 +179,24 @@ aba `Records`. Duas coisas evitam desperdício:
   lia a aba `Settings` em toda requisição que olhasse um usuário, para descobrir
   que não havia nada a migrar.
 
+## Feriados automáticos
+
+Os feriados nacionais e os da cidade/estado de São Paulo entram sozinhos — não
+precisa registrar ocorrência:
+
+- 01/01, **25/01 (Aniversário de SP)**, Sexta-feira Santa (calculada pela
+  Páscoa), 21/04, 01/05, **09/07 (Revolução Constitucionalista)**, 07/09, 12/10,
+  02/11, 15/11, 20/11, 25/12
+- Carnaval, Quarta de Cinzas e Corpus Christi ficam **de fora** de propósito
+
+No feriado o dia não tem meta: não gera débito, e **toda hora trabalhada nele
+conta como extra**. No relatório "By day" aparece uma linha 🎉 por pessoa em
+cada feriado de dia útil do período, e o CSV do e-mail mensal traz a mesma
+linha. Uma ocorrência "Holiday" registrada à mão continua funcionando.
+
+A lista está em dois lugares, que precisam ficar iguais: `FIXED_HOLIDAYS` no
+`index.html` e `FIXED_HOLIDAYS_BE` no `Code.gs`.
+
 ## Relatório mensal por e-mail
 
 Todo mês, o script pode mandar para cada colaborador um CSV com as batidas e o

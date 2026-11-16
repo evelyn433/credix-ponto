@@ -2493,6 +2493,108 @@ function formatWindow(from, to) {
   return normalizeTime(from) + '-' + normalizeTime(to);
 }
 
+// ── Holidays ──────────────────────────────────────────
+// National holidays plus the São Paulo city/state ones are applied
+// automatically: nobody needs to register them. On a holiday the day has no
+// target, so it never creates debt — and any hour worked on it is extra.
+// Corpus Christi, Carnaval and Ash Wednesday are left out on purpose (optional
+// days off); to add one, add it below. Keep in sync with Code.gs.
+const FIXED_HOLIDAYS = {
+  '01/01': 'Confraternização Universal',
+  '25/01': 'Aniversário de São Paulo',
+  '21/04': 'Tiradentes',
+  '01/05': 'Dia do Trabalho',
+  '09/07': 'Revolução Constitucionalista',
+  '07/09': 'Independência do Brasil',
+  '12/10': 'Nossa Senhora Aparecida',
+  '02/11': 'Finados',
+  '15/11': 'Proclamação da República',
+  '20/11': 'Consciência Negra',
+  '25/12': 'Natal'
+};
+
+// Easter Sunday (Gregorian calendar, anonymous algorithm).
+function easterDate(y) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(y, month - 1, day);
+}
+
+const holidayCache = {};
+// { 'DD/MM/YYYY': name } for one year.
+function holidaysOf(year) {
+  if (holidayCache[year]) return holidayCache[year];
+  const map = {};
+  Object.keys(FIXED_HOLIDAYS).forEach(k => { map[k + '/' + year] = FIXED_HOLIDAYS[k]; });
+  const gf = easterDate(year); gf.setDate(gf.getDate() - 2);
+  const p = n => String(n).padStart(2, '0');
+  map[p(gf.getDate()) + '/' + p(gf.getMonth() + 1) + '/' + year] = 'Sexta-feira Santa';
+  return (holidayCache[year] = map);
+}
+
+function holidayName(brDate) {
+  const p = String(brDate || '').split('/');
+  if (p.length !== 3) return '';
+  return holidaysOf(Number(p[2]))[brDate] || '';
+}
+
+// Adds a "Holiday" row per person for each weekday holiday inside the report's
+// window that has no record — what used to be registered by hand. These rows
+// carry no target and no balance; they only make the holiday visible.
+function addHolidayDays(days, recs, people, fromVal, toVal) {
+  if (!people.length) return days;
+  const parse = v => { const p = String(v || '').split('-'); return p.length === 3 ? new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])) : null; };
+  let start = parse(fromVal);
+  let end = parse(toVal);
+  if (!start) {   // open start: begin at the oldest record shown
+    const keys = recs.map(r => dateKey(r.date)).filter(Boolean);
+    if (!keys.length) return days;
+    const k = Math.min.apply(null, keys);
+    start = new Date(Math.floor(k / 10000), Math.floor(k / 100) % 100 - 1, k % 100);
+  }
+  if (!end) { const t = new Date(); end = new Date(t.getFullYear(), t.getMonth(), t.getDate()); }
+  if (end < start) return days;
+
+  const have = {};
+  days.forEach(d => { have[d.user + '|' + d.date] = true; });
+  const out = days.slice();
+  for (let y = start.getFullYear(); y <= end.getFullYear(); y++) {
+    const map = holidaysOf(y);
+    Object.keys(map).forEach(function(br) {
+      const p = br.split('/');
+      const dt = new Date(Number(p[2]), Number(p[1]) - 1, Number(p[0]));
+      if (dt < start || dt > end) return;
+      if (dt.getDay() === 0 || dt.getDay() === 6) return;   // weekend: nothing to show
+      people.forEach(function(u) {
+        if (have[u + '|' + br]) return;
+        out.push({ user: u, name: (USERS[u] && USERS[u].name) || u, date: br,
+          punches: [], occurrences: [], windows: [], holiday: map[br], virtual: true,
+          gross: 0, lunch: 0, worked: 0, justified: 0, credited: 0,
+          clockIn: '', lunchOut: '', lunchIn: '', clockOut: '',
+          incomplete: false, hasOccurrence: false, fullDayOff: false,
+          counts: false, target: 0, balance: 0 });
+      });
+    });
+  }
+  return out.sort(function(a, b) {
+    return (dateKey(b.date) - dateKey(a.date)) || a.name.localeCompare(b.name);
+  });
+}
+
+// Who the report is about: the chosen person, the whole team for the admin, or
+// the collaborator themself.
+function reportPeople() {
+  if (!isAdmin(currentUser)) return currentUser ? [currentUser] : [];
+  const fu = (document.getElementById('rep-user') || {}).value;
+  if (fu) return [fu];
+  return Object.keys(USERS).filter(k => !USERS[k].admin);
+}
+
 // Collapses the punch list into one row per person per day.
 // A day only counts towards the balance when it is a plain, complete workday:
 //   - an odd number of punches means somebody forgot one, so the worked total
@@ -2536,9 +2638,11 @@ function summariseDays(recs) {
     day.justified = day.windows.reduce((sum, w) => sum + w.seconds, 0);
     day.credited = day.worked + day.justified;
 
+    // A holiday has no target: hours worked on it are all extra.
+    day.holiday = holidayName(day.date);
     day.counts = !day.fullDayOff && !day.incomplete
       && (punches.length > 0 || day.justified > 0);
-    day.target = day.counts ? DAILY_TARGET_SECONDS : 0;
+    day.target = day.counts && !day.holiday ? DAILY_TARGET_SECONDS : 0;
     day.balance = day.counts ? day.credited - day.target : 0;
     return day;
   }).sort(function(a, b) {
@@ -2562,6 +2666,11 @@ function dayFlag(day) {
   // the In/Out columns (first in, last out) look complete.
   if (day.incomplete) return '<span class="day-flag" title="An odd number of punches — a punch is missing or duplicated. Open All punches to fix.">uneven punches (' + day.punches.length + ')</span>';
   if (day.fullDayOff) return '<span class="day-flag">' + escapeHtml(fullDayType(day)) + '</span>';
+  if (day.holiday) {
+    return '<span class="day-flag" style="color:var(--purple);background:var(--purple-dim);'
+      + 'border-color:transparent" title="' + (day.punches.length ? 'Holiday — hours worked count as extra' : 'Holiday — no work expected') + '">'
+      + '🎉 ' + escapeHtml(day.holiday) + '</span>';
+  }
   if (day.hasOccurrence) {
     return '<span class="day-flag" style="color:var(--blue);background:var(--blue-dim);'
       + 'border-color:rgba(77,159,255,0.25)">' + escapeHtml(day.occurrences[0].type) + '</span>';
@@ -2752,7 +2861,8 @@ function renderReport() {
     ensureAllRecords().then(function(ok) { if (ok) renderReport(); });
   }
   const recs = sortRecords(reportRecords(), 'desc');
-  const days = summariseDays(recs);
+  const days = addHolidayDays(summariseDays(recs), recs, reportPeople(),
+    (document.getElementById('rep-from') || {}).value, (document.getElementById('rep-to') || {}).value);
   const counted = days.filter(d => d.counts);
   const skipped = days.filter(d => d.punches.length && !d.counts);
 
@@ -2875,7 +2985,9 @@ function exportCSV() {
                        formatDuration(p.expected), formatSigned(p.balance), p.skipped]));
     kind = 'balance';
   } else if (reportView === 'daily') {
-    const days = summariseDays(recs).slice().reverse();  // oldest first
+    const days = addHolidayDays(summariseDays(recs), recs, reportPeople(),
+      (document.getElementById('rep-from') || {}).value,
+      (document.getElementById('rep-to') || {}).value).slice().reverse();  // oldest first
     // One Lunch column, matching the on-screen table: the punched window on
     // legacy days, or the fixed hour taken off automatically on new ones.
     csv = toCsv('Collaborator,Date,Clock In,Lunch,Clock Out,Worked,Justified,Target,Balance,Note',
@@ -2894,6 +3006,7 @@ function exportCSV() {
                       const note = String(o.notes || '').trim();
                       return o.type + (w ? ' ' + w.from + '-' + w.to : ' (full day)') + (note ? ' — ' + note : '');
                     }).join(' / ')
+                  : d.holiday ? 'Holiday — ' + d.holiday + (d.punches.length ? ' (worked hours count as extra)' : '')
                   : ''];
       }));
     kind = 'daily';
