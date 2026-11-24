@@ -1505,25 +1505,28 @@ function formatSheetTime(val) {
 function getRecords() { return ALL_RECORDS; }
 
 async function saveRecordRemote(rec) {
-  await apiPost('addRecord', { record: rec });
+  await apiPost('addRecord', Object.assign({ record: rec }, authFields()));
   ALL_RECORDS.push(rec);
 }
 
 async function updateRecordRemote(rec) {
-  await apiPost('updateRecord', { record: rec });
+  await apiPost('updateRecord', Object.assign({ record: rec }, authFields()));
   const idx = ALL_RECORDS.findIndex(r => r.id === rec.id);
   if (idx > -1) ALL_RECORDS[idx] = rec;
 }
 
 async function deleteRecordRemote(id) {
-  await apiPost('deleteRecord', { id });
+  await apiPost('deleteRecord', Object.assign({ id }, authFields()));
   ALL_RECORDS = ALL_RECORDS.filter(r => r.id !== id);
 }
 
 async function saveUsersRemote(usersObj) {
   const arr = Object.entries(usersObj).map(([key, u]) => ({ key, name: u.name, admin: u.admin }));
-  await apiPost('saveUsers', { users: arr });
+  await apiPost('saveUsers', Object.assign({ users: arr }, authFields()));
 }
+
+// Every write carries the session's proof: the backend checks who is saving.
+function authFields() { return { user: currentUser, pwdHash: sessionPwdHash }; }
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
@@ -1549,35 +1552,68 @@ function refreshDropdowns() {
   });
 }
 
+// Saving sends the whole roster, so start every change from a fresh copy: a tab
+// left open with an old list would otherwise write it back over a change made
+// meanwhile (in the sheet or by the other admin).
+async function freshRoster() {
+  const ok = await loadUsers();
+  if (!ok) showToast('❌ Could not reach the server — check your connection and try again.', 'error');
+  return ok;
+}
+
+async function commitRoster(next, okMsg) {
+  try { await saveUsersRemote(next); }
+  catch(e) { showToast('❌ Could not save — ' + (e.message || 'try again.'), 'error'); return false; }
+  USERS = next;
+  cacheUsers();
+  refreshDropdowns();
+  renderCollaborators();
+  showToast(okMsg, 'success');
+  return true;
+}
+
 async function addCollaborator() {
   const nameInput = document.getElementById('new-collab-name');
   const name = nameInput.value.trim();
   if (!name) { showToast('Please enter a name.', 'error'); return; }
   const key = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
   if (!key) { showToast('Please use letters or numbers in the name.', 'error'); return; }
+  if (!(await freshRoster())) return;
   if (USERS[key]) { showToast('A collaborator with this name already exists.', 'error'); return; }
   const next = Object.assign({}, USERS, { [key]: { name, admin: false, hasPassword: false, hasWord: false } });
-  try { await saveUsersRemote(next); }
-  catch(e) { showToast('❌ Could not save — check your connection and try again.', 'error'); return; }
-  USERS = next;
-  nameInput.value = '';
-  refreshDropdowns();
-  renderCollaborators();
-  showToast('✅ ' + name + ' added — they create their password on first access.', 'success');
+  if (await commitRoster(next, '✅ ' + name + ' added — they create their password on first access.')) {
+    nameInput.value = '';
+  }
 }
 
 async function removeCollaborator(key) {
   if (!USERS[key]) return;
-  if (USERS[key].admin) { showToast('Cannot remove the admin.', 'error'); return; }
-  if (!confirm('Remove ' + USERS[key].name + '? Their records will be kept.')) return;
+  if (key === currentUser) { showToast('You can’t remove yourself.', 'error'); return; }
+  const who = USERS[key].name;
+  const extra = USERS[key].admin ? ' They will lose admin access.' : '';
+  if (!confirm('Remove ' + who + '?' + extra + ' Their records will be kept.')) return;
+  if (!(await freshRoster())) return;
+  if (!USERS[key]) { renderCollaborators(); return; }
   const next = Object.assign({}, USERS);
   delete next[key];
-  try { await saveUsersRemote(next); }
-  catch(e) { showToast('❌ Could not save — check your connection and try again.', 'error'); return; }
-  USERS = next;
-  refreshDropdowns();
-  renderCollaborators();
-  showToast('Collaborator removed.', 'success');
+  await commitRoster(next, who + ' removed.');
+}
+
+// Makes someone admin, or takes admin away. Never your own — the backend
+// refuses that too, so the team always keeps at least one admin.
+async function setAdmin(key, makeAdmin) {
+  if (!USERS[key]) return;
+  if (key === currentUser) { showToast('You can’t change your own access.', 'error'); return; }
+  const who = USERS[key].name;
+  const q = makeAdmin
+    ? 'Make ' + who + ' an admin? They will see everyone’s records, approve requests and edit punches.'
+    : 'Remove admin access from ' + who + '? They become a regular collaborator.';
+  if (!confirm(q)) return;
+  if (!(await freshRoster())) return;
+  if (!USERS[key]) { renderCollaborators(); return; }
+  const next = Object.assign({}, USERS);
+  next[key] = Object.assign({}, USERS[key], { admin: !!makeAdmin });
+  await commitRoster(next, makeAdmin ? '★ ' + who + ' is now an admin.' : who + ' is no longer an admin.');
 }
 
 async function refreshAdmin() {
@@ -1610,7 +1646,10 @@ function renderCollaborators() {
     if (u.hasPassword && key !== currentUser) {
       actions += '<button class="btn btn-outline btn-sm reset-pwd-btn" data-key="' + key + '">&#128275; Reset password</button> ';
     }
-    if (!u.admin) {
+    if (key !== currentUser) {
+      actions += u.admin
+        ? '<button class="btn btn-outline btn-sm admin-toggle-btn" data-key="' + key + '" data-make="0">Remove admin</button> '
+        : '<button class="btn btn-outline btn-sm admin-toggle-btn" data-key="' + key + '" data-make="1">&#9733; Make admin</button> ';
       actions += '<button class="btn btn-danger btn-sm remove-collab-btn" data-key="' + key + '">&#128465; Remove</button>';
     }
     if (!actions) actions = '<span style="color:var(--text3);font-size:12px">&mdash;</span>';
@@ -1618,6 +1657,11 @@ function renderCollaborators() {
       + '<td>' + pwdCell + '</td><td style="white-space:nowrap">' + actions + '</td></tr>';
   });
   tbody.innerHTML = rows;
+  tbody.querySelectorAll('.admin-toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      setAdmin(this.getAttribute('data-key'), this.getAttribute('data-make') === '1');
+    });
+  });
   tbody.querySelectorAll('.remove-collab-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       removeCollaborator(this.getAttribute('data-key'));

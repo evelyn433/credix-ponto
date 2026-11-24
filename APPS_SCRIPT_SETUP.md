@@ -63,11 +63,11 @@ acesso.
 | Ação | Método | O que faz |
 |---|---|---|
 | `getRecords` | POST | devolve os registros — **exige usuário e senha válidos** |
-| `addRecord` | POST | grava uma batida ou ocorrência |
-| `updateRecord` | POST | corrige um registro pelo `id` |
-| `deleteRecord` | POST | apaga um registro pelo `id` |
+| `addRecord` | POST | grava uma batida ou ocorrência — **exige senha**; cada um só grava o próprio, admin grava para qualquer um |
+| `updateRecord` | POST | corrige um registro pelo `id` — **só admin** |
+| `deleteRecord` | POST | apaga um registro pelo `id` — **só admin** |
 | `getUsers` | GET | colaboradores, sem hash — só se cada um já tem senha |
-| `saveUsers` | POST | salva a lista, preservando as senhas de quem continua |
+| `saveUsers` | POST | salva a lista, preservando senhas e e-mails de quem continua — **só admin**, e nunca tirando o próprio acesso de admin |
 | `login` | POST | confere a senha e devolve a pessoa **e os registros**, poupando uma ida ao servidor |
 | `setPassword` | POST | grava uma senha nova, exigindo prova |
 | `setSecurityWord` | POST | grava a palavra de segurança, exigindo a senha atual |
@@ -92,6 +92,24 @@ nomes antes de alguém entrar. Isso expõe os nomes do time e quem já criou sen
 
 Consequência prática: não dá mais para conferir os registros colando a URL no
 navegador. Para diagnóstico, `?action=getUsers` continua funcionando.
+
+## Gravar exige senha
+
+Assim como ler, toda gravação confere a senha da sessão no servidor. Antes,
+`saveUsers` e `addRecord` aceitavam qualquer pedido: quem achasse o endereço do
+backend no código da página podia se cadastrar como admin, ou gravar batidas no
+nome de outra pessoa.
+
+- **`saveUsers`** — só admin. Um admin não consegue tirar o próprio acesso nem
+  se remover, então o time nunca fica sem admin.
+- **`addRecord`** — cada pessoa grava só o próprio ponto; o admin grava para
+  qualquer um (é o "+ Add record").
+- **`updateRecord` / `deleteRecord`** — só admin.
+
+No Admin Panel, **Manage collaborators** tem **★ Make admin**, **Remove admin**
+e **Remove** para qualquer pessoa que não seja você. Antes de salvar, o app
+busca a lista atual no servidor, para uma aba antiga não gravar por cima de uma
+mudança feita na planilha ou pelo outro admin.
 
 ## Correções de ponto
 

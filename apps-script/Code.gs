@@ -121,11 +121,22 @@ function handleRequest(e) {
       return json_({ success: true, records: body.recent ? recentRecords_(all, RECENT_DAYS_BE) : all });
     }
 
+    // Gravar também exige senha: cada um grava só o próprio ponto, e só um
+    // admin grava em nome de outra pessoa, corrige ou apaga.
     if (action === "addRecord") {
       const rec = body.record || {};
       if (!rec.id) return json_({ success: false, error: "Record without id" });
+      const who = authUser_(readUsers_(ss), body);
+      if (!who) return json_({ success: false, authRequired: true, error: "Sign in again to save." });
+      if (!who.admin && String(rec.user) !== who.key) {
+        return json_({ success: false, error: "You can only record your own time." });
+      }
       sheet().appendRow(recordToRow_(rec));
       return json_({ success: true });
+    }
+
+    if ((action === "updateRecord" || action === "deleteRecord") && !adminAuth_(readUsers_(ss), body)) {
+      return json_({ success: false, authRequired: true, error: "Admin password required." });
     }
 
     if (action === "updateRecord") {
@@ -286,8 +297,12 @@ function handleRequest(e) {
       if (!Array.isArray(incoming) || !incoming.length) {
         return json_({ success: false, error: "Empty user list refused" });
       }
-      // preserva as senhas de quem continua na lista
+      // Só um admin muda a lista — senão qualquer um com o endereço se
+      // cadastraria como admin.
       const current = readUsers_(ss);
+      const caller = adminAuth_(current, body);
+      if (!caller) return json_({ success: false, authRequired: true, error: "Admin password required." });
+      // preserva as senhas de quem continua na lista
       const byKey = {};
       current.forEach(function (u) { byKey[u.key] = u; });
       const merged = incoming.map(function (u) {
@@ -302,6 +317,11 @@ function handleRequest(e) {
           email: old.email || ""
         };
       });
+      // Ninguém tira o próprio acesso de admin: assim o time nunca fica sem admin.
+      const self = pickUser_(merged, caller.key);
+      if (!self || !self.admin) {
+        return json_({ success: false, error: "You can't remove your own admin access." });
+      }
       writeUsers_(ss, merged);
       return json_({ success: true });
     }
@@ -423,6 +443,14 @@ function isAdminProof_(users, body) {
   const admin = pickUser_(users, body.adminKey);
   if (!admin || !admin.admin || !admin.pwdHash) return false;
   return String(body.adminPwdHash) === admin.pwdHash;
+}
+
+// Um admin logado — pela senha da própria sessão (user/pwdHash) ou pela prova
+// de admin (adminKey/adminPwdHash). Devolve o admin, ou null.
+function adminAuth_(users, body) {
+  const who = authUser_(users, body);
+  if (who && who.admin) return who;
+  return isAdminProof_(users, body) ? pickUser_(users, body.adminKey) : null;
 }
 
 function pickUser_(users, key) {
