@@ -214,6 +214,13 @@ Para ligar (uma vez):
 3. O Google vai pedir para **autorizar** o script a enviar e-mail (a tela de "app
    não verificado" → *Avançado › Ir para o projeto*). É uma vez só.
 
+**Resumo do time para os admins:** todo admin com e-mail na aba `Users` recebe,
+no mesmo dia, um e-mail com uma linha por colaborador (dias contados, horas,
+saldo — ou "sem registros no mês") e um CSV com o detalhe dia a dia de todo
+mundo. Entra no resumo quem tem registros, mesmo sem e-mail cadastrado. Para um
+admin parar de receber, apague o e-mail dele. O nome indicado para dúvidas no
+e-mail dos colaboradores fica em `CONTACT_NAME_BE` no `Code.gs`.
+
 O e-mail sai da conta dona do script, então para o time chega "de você". Cada um
 recebe **só os próprios dados**. O cálculo do saldo é o mesmo do app (meta 8h48,
 1h de almoço descontada quando não foi batida, ocorrência com janela conta como

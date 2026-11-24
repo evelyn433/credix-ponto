@@ -896,8 +896,12 @@ function buildUserCsvBE_(name, days) {
   lines.push([name, "TOTAL — " + counted.length + " dia(s)", "", "", "",
     formatDurationBE_(worked), formatDurationBE_(justified), formatDurationBE_(expected),
     formatSignedBE_(balance), ""].map(csvCellBE_).join(","));
-  return { csv: "\uFEFF" + lines.join("\n"), worked: worked, balance: balance, daysCounted: counted.length };
+  return { csv: "\uFEFF" + lines.join("\n"), rows: lines.slice(1), worked: worked, justified: justified,
+    expected: expected, balance: balance, daysCounted: counted.length };
 }
+
+// Quem o e-mail indica para tirar d\u00FAvidas.
+const CONTACT_NAME_BE = "Fabio";
 
 const MONTH_NAMES_BE = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
   "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -921,17 +925,23 @@ function monthlyReport() {
   const yy = String(target.year);
   const label = MONTH_NAMES_BE[target.month] + "/" + target.year;
   let sent = 0;
+  const hasEmail = function (u) { return u.email && u.email.indexOf("@") > -1; };
+  const team = [];   // resumo de todo mundo, para o e-mail dos admins
 
   users.forEach(function (u) {
-    if (!u.email || u.email.indexOf("@") === -1) return;           // sem endereço, pula
     const mine = records.filter(function (r) {
       if (String(r.user) !== u.key) return false;
       const p = String(r.date).split("/");                         // DD/MM/YYYY
       return p.length === 3 && p[1] === mm && p[2] === yy;
     });
-    if (!mine.length) return;                                       // nada no mês, não manda
+    if (!mine.length) {                                             // nada no mês, não manda
+      if (!u.admin) team.push({ name: u.name, built: null });
+      return;
+    }
 
     const built = buildUserCsvBE_(u.name, summariseUserDaysBE_(mine, target));
+    if (!u.admin) team.push({ name: u.name, built: built });
+    if (!hasEmail(u)) return;                                       // sem endereço, pula
     const blob = Utilities.newBlob(built.csv, "text/csv", "ponto_" + u.key + "_" + mm + "-" + yy + ".csv");
     const body = "Oi " + u.name + ",\n\n"
       + "Segue em anexo o seu relatório de ponto de " + label + " (CSV).\n\n"
@@ -939,13 +949,43 @@ function monthlyReport() {
       + "• Dias contados: " + built.daysCounted + "\n"
       + "• Horas trabalhadas: " + formatDurationBE_(built.worked) + "\n"
       + "• Saldo do mês: " + formatSignedBE_(built.balance) + "\n\n"
-      + "Qualquer divergência, fale com o Enzo.\n\n— Credix Time Tracking";
+      + "Qualquer dúvida, fale com o " + CONTACT_NAME_BE + ".\n\n— Credix Time Tracking";
     MailApp.sendEmail({ to: u.email, subject: "Seu ponto — " + label, body: body,
       attachments: [blob], name: "Credix Time Tracking" });
     sent++;
     Logger.log("Relatório enviado para " + u.email + " (" + label + ")");
   });
-  Logger.log(sent + " relatório(s) enviado(s) referente(s) a " + label + ".");
+
+  // Cada admin com e-mail recebe o resumo do time inteiro: uma linha por pessoa
+  // no corpo e um CSV só com o detalhe dia a dia de todo mundo.
+  const withData = team.filter(function (t) { return t.built; });
+  if (withData.length) {
+    team.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    const lines = team.map(function (t) {
+      return t.built
+        ? "• " + t.name + " — " + t.built.daysCounted + " dia(s), "
+          + formatDurationBE_(t.built.worked) + " trabalhadas"
+          + (t.built.justified ? " + " + formatDurationBE_(t.built.justified) + " justificadas" : "")
+          + ", saldo " + formatSignedBE_(t.built.balance)
+        : "• " + t.name + " — sem registros no mês";
+    });
+    const header = "Collaborator,Date,Clock In,Lunch,Clock Out,Worked,Justified,Target,Balance,Note";
+    const rows = [];
+    team.forEach(function (t) { if (t.built) Array.prototype.push.apply(rows, t.built.rows); });
+    const teamBlob = Utilities.newBlob("﻿" + header + "\n" + rows.join("\n"), "text/csv",
+      "ponto_time_" + mm + "-" + yy + ".csv");
+    users.forEach(function (a) {
+      if (!a.admin || !hasEmail(a)) return;
+      const body = "Oi " + a.name + ",\n\n"
+        + "Segue o resumo de ponto do time de " + label + ". O CSV em anexo traz o detalhe dia a dia de cada pessoa.\n\n"
+        + lines.join("\n") + "\n\n— Credix Time Tracking";
+      MailApp.sendEmail({ to: a.email, subject: "Ponto do time — " + label, body: body,
+        attachments: [teamBlob], name: "Credix Time Tracking" });
+      sent++;
+      Logger.log("Resumo do time enviado para " + a.email + " (" + label + ")");
+    });
+  }
+  Logger.log(sent + " e-mail(s) enviado(s) referente(s) a " + label + ".");
 }
 
 // Rode UMA vez no editor (▶ Run) para criar o gatilho mensal (dia 1, ~7h).
