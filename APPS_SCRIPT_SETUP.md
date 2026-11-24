@@ -150,6 +150,23 @@ status e nunca apareceria como pendente. Então o cabeçalho se conserta sozinho
 primeira requisição, remontando as linhas que já existem pelo nome da coluna
 delas. Não há nada a fazer na planilha.
 
+## Dia sem almoço
+
+O almoço de 1h é descontado sozinho em todo dia trabalhado. Quem não almoçou
+abre **Request Correction › 🍽 Didn't take lunch**, escolhe o dia (hoje ou
+passado) e escreve o motivo. Vira um pedido (`action = nolunch`) como qualquer
+correção, e só na aprovação do admin é gravado em `Records` um registro do tipo
+**`No Lunch`**, com `time` vazio e o motivo em `notes`.
+
+Esse registro **não é folga**: o dia continua com a meta cheia, só deixa de ter
+a 1h descontada. Um por dia — o servidor recusa um segundo pedido para a mesma
+data. O admin também pode lançar direto pelo "+ Add record" (tipo *No Lunch*),
+e o registro aparece no Admin Panel junto das ocorrências, onde dá para apagar.
+
+Pela CLT (art. 71), jornada acima de 6h tem direito a intervalo mínimo de 1h; o
+intervalo não concedido é devido com adicional de 50%. O registro serve também
+como prova de que o dia aconteceu assim.
+
 ## Ocorrência de dia inteiro x de algumas horas
 
 Uma ocorrência pode cobrir o dia todo ou só uma parte dele, e a diferença muda o

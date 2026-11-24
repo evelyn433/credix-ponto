@@ -31,6 +31,9 @@ const REQUEST_COLUMNS = ["id", "user", "name", "action", "targetId", "type", "da
                          "time", "reason", "doc", "status", "createdAt", "reviewedBy", "reviewedAt"];
 const PUNCH_TYPES_BE = ["Clock In", "Lunch Out", "Lunch In", "Clock Out"];
 const OCCURRENCE_TYPES_BE = ["Medical Leave", "Holiday", "Day Off", "Vacation"];
+// Registro especial: não é folga nem batida — só diz que naquele dia não houve
+// almoço, então a 1h automática não é descontada.
+const NO_LUNCH_BE = "No Lunch";
 
 // Login and the app's refresh ask for only this window, so the payload stays
 // small as the Records sheet grows over the months. The full history is fetched
@@ -172,7 +175,8 @@ function handleRequest(e) {
       if (String(req.user || "") !== me.key) {
         return json_({ success: false, error: "You can only request corrections for yourself." });
       }
-      if (!req.id || !req.date || !req.time) {
+      const isNoLunch = String(req.action || "") === "nolunch";
+      if (!req.id || !req.date || (!req.time && !isNoLunch)) {
         return json_({ success: false, error: "Date and time are required." });
       }
       if (!String(req.reason || "").trim()) {
@@ -181,6 +185,28 @@ function handleRequest(e) {
 
       const isOccurrence = String(req.action || "") === "occurrence";
       let targetId = "";
+
+      if (isNoLunch) {
+        // "Não almocei": aprovado, grava um registro No Lunch e aquele dia deixa
+        // de ter a 1h de almoço descontada. Um por dia.
+        const date = String(req.date);
+        const already = readRecords_(sheet()).some(function (r) {
+          return String(r.user) === me.key && brDateBE_(r.date) === date && r.type === NO_LUNCH_BE;
+        });
+        const pending = readRequests_(ss).some(function (r) {
+          return r.user === me.key && r.date === date && r.action === "nolunch" && r.status === "pending";
+        });
+        if (already || pending) {
+          return json_({ success: false, error: "There is already a no-lunch " + (already ? "record" : "request") + " for " + date + "." });
+        }
+        appendRequest_(ss, {
+          id: String(req.id), user: me.key, name: me.name, action: "nolunch", targetId: "",
+          type: NO_LUNCH_BE, date: date, time: "",
+          reason: String(req.reason).trim(), doc: "", status: "pending",
+          createdAt: String(req.createdAt || ""), reviewedBy: "", reviewedAt: ""
+        });
+        return json_({ success: true });
+      }
 
       if (isOccurrence) {
         if (OCCURRENCE_TYPES_BE.indexOf(String(req.type)) === -1) {
@@ -251,6 +277,13 @@ function handleRequest(e) {
             notes: withReason_(current.notes, req.reason),
             timestamp: current.timestamp
           })]);
+        } else if (req.action === "nolunch") {
+          sheet().appendRow(recordToRow_({
+            id: req.id, user: req.user, name: req.name,
+            type: NO_LUNCH_BE, date: req.date, time: "",
+            notes: withReason_("", req.reason),
+            timestamp: String(body.reviewedAt || req.createdAt || "")
+          }));
         } else if (req.action === "occurrence") {
           // Igual ao que uma ocorrência registrada direto grava: o link do
           // documento e a justificativa, na mesma ordem.
@@ -853,15 +886,17 @@ function holidayNameBE_(brDate) {
 function summariseUserDaysBE_(records, period) {
   const byDate = {};
   records.forEach(function (r) {
-    const d = byDate[r.date] || (byDate[r.date] = { punches: [], occurrences: [] });
-    (isPunchTypeBE_(r.type) ? d.punches : d.occurrences).push(r);
+    const d = byDate[r.date] || (byDate[r.date] = { punches: [], occurrences: [], noLunch: false });
+    if (r.type === NO_LUNCH_BE) d.noLunch = true;
+    else (isPunchTypeBE_(r.type) ? d.punches : d.occurrences).push(r);
   });
   const days = Object.keys(byDate).map(function (date) {
     const day = byDate[date];
     const punches = day.punches;
     const first = function (t) { for (var i = 0; i < punches.length; i++) if (punches[i].type === t) return punches[i].time; return ""; };
     const last = function (t) { var v = ""; punches.forEach(function (p) { if (p.type === t) v = p.time; }); return v; };
-    const worked = Math.max(0, workedSecondsBE_(punches) - lunchOffBE_(punches));
+    const lunch = day.noLunch ? 0 : lunchOffBE_(punches);   // "não almocei" aprovado
+    const worked = Math.max(0, workedSecondsBE_(punches) - lunch);
     const justified = day.occurrences.reduce(function (s, o) { return s + windowSecondsBE_(o.time); }, 0);
     const fullDayOff = day.occurrences.some(function (o) { return !parseWindowBE_(o.time); });
     const incomplete = punches.length > 0 && punches.length % 2 === 1;
@@ -870,7 +905,7 @@ function summariseUserDaysBE_(records, period) {
     const target = counts && !holiday ? DAILY_TARGET_SECONDS_BE : 0;   // feriado: tudo é extra
     return {
       date: date, clockIn: first("Clock In"), clockOut: last("Clock Out"),
-      lunchOut: first("Lunch Out"), lunchIn: first("Lunch In"), lunch: lunchOffBE_(punches),
+      lunchOut: first("Lunch Out"), lunchIn: first("Lunch In"), lunch: lunch, noLunch: day.noLunch,
       worked: worked, justified: justified, punchCount: punches.length,
       counts: counts, incomplete: incomplete, fullDayOff: fullDayOff, occurrences: day.occurrences,
       holiday: holiday, target: target,
@@ -899,6 +934,7 @@ function buildUserCsvBE_(name, days) {
   const lines = ["Collaborator,Date,Clock In,Lunch,Clock Out,Worked,Justified,Target,Balance,Note"];
   days.forEach(function (d) {
     const lunch = (d.lunchOut || d.lunchIn) ? [d.lunchOut, d.lunchIn].filter(Boolean).join(" - ")
+      : d.noLunch ? "No lunch"
       : (d.lunch ? "-" + formatDurationBE_(d.lunch) : "");
     const occNote = d.occurrences.map(function (o) {
       const w = parseWindowBE_(o.time);

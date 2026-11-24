@@ -777,7 +777,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
           <div class="card">
             <div class="card-title">My Requests</div>
             <div style="margin-bottom:12px; font-size:12px; color:var(--text2); line-height:1.6;">
-              Forgot a punch, or clocked the wrong time? Send a correction — it applies once the admin approves.
+              Forgot a punch, clocked the wrong time, or didn't take lunch? Send a correction — it applies once the admin approves.
               Occurrences with hours show up here too.
             </div>
             <button class="btn-correction" onclick="openCorrectionModal()">
@@ -1091,13 +1091,14 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
       <input type="date" id="corr-date" onchange="previewCorrection()">
     </div>
     <div class="modal-field">
-      <label>Punch</label>
+      <label>What</label>
       <select id="corr-type" onchange="previewCorrection()">
         <option value="Clock In">▶ Clock In</option>
         <option value="Clock Out">■ Clock Out</option>
+        <option value="No Lunch">🍽 Didn't take lunch</option>
       </select>
     </div>
-    <div class="modal-field">
+    <div class="modal-field" id="corr-time-field">
       <label>Correct Time</label>
       <input type="time" id="corr-time" step="60">
     </div>
@@ -1139,6 +1140,7 @@ input[type="time"]:hover::-webkit-calendar-picker-indicator { opacity: 1; }
         <option value="Holiday">🎉 Holiday</option>
         <option value="Day Off">☀️ Day Off</option>
         <option value="Vacation">✈️ Vacation</option>
+        <option value="No Lunch">🍽 No Lunch (1h not deducted)</option>
       </select>
     </div>
     <div class="modal-field">
@@ -1869,6 +1871,10 @@ const PUNCH_BUTTONS = {
 
 function isPunchType(type) { return PUNCH_TYPES.indexOf(type) > -1; }
 
+// Not a punch and not a day off: an approved "I didn't take lunch" for that day,
+// so the automatic hour is not taken off. Comes from a request the admin approves.
+const NO_LUNCH = 'No Lunch';
+
 // A plain toggle: are you currently clocked in? Count starts (Clock In / the
 // legacy Lunch In) against stops (Clock Out / the legacy Lunch Out). More starts
 // than stops → you are in, so offer Clock Out; otherwise offer Clock In. It is
@@ -1915,6 +1921,7 @@ function workedSeconds(recs) {
 const LUNCH_SECONDS = 60 * 60;
 
 function lunchOff(recs) {
+  if (recs.some(function(r) { return r.type === NO_LUNCH; })) return 0;   // approved "no lunch"
   const punched = recs.some(function(r) { return r.type === 'Lunch Out' || r.type === 'Lunch In'; });
   if (punched) return 0;
   return workedSeconds(recs) > 0 ? LUNCH_SECONDS : 0;
@@ -2362,7 +2369,18 @@ function previewCorrection() {
   const el = document.getElementById('corr-preview');
   const brDate = inputDateToBr(document.getElementById('corr-date').value);
   const type = document.getElementById('corr-type').value;
+  const timeField = document.getElementById('corr-time-field');
+  if (timeField) timeField.style.display = type === NO_LUNCH ? 'none' : '';
+  const reasonEl = document.getElementById('corr-reason');
+  if (reasonEl) reasonEl.placeholder = type === NO_LUNCH
+    ? 'e.g. urgent delivery, worked through lunch' : 'e.g. forgot to clock in on arrival';
   if (!brDate) { el.innerHTML = 'Pick a date.'; return; }
+  if (type === NO_LUNCH) {
+    el.innerHTML = myPunchOn(brDate, NO_LUNCH)
+      ? 'You already have no lunch approved on ' + brDate + '.'
+      : 'Once approved, the automatic <b>1h of lunch</b> will <b>not</b> be deducted on ' + brDate + '.';
+    return;
+  }
   const existing = myPunchOn(brDate, type);
   el.innerHTML = existing
     ? 'This will <b>change</b> your ' + escapeHtml(type) + ' on ' + brDate
@@ -2377,6 +2395,7 @@ async function submitCorrection() {
   const reason = document.getElementById('corr-reason').value.trim();
 
   if (!dateRaw) { showToast('Please pick a date.', 'error'); return; }
+  if (type === NO_LUNCH) { submitNoLunch(dateRaw, reason); return; }
   if (!time) { showToast('Please enter the correct time.', 'error'); return; }
   if (!reason) { showToast('Please say why — the admin needs the context.', 'error'); return; }
 
@@ -2402,13 +2421,41 @@ async function submitCorrection() {
   showToast('✅ Sent for approval.', 'success');
 }
 
+// "I didn't take lunch" on a day: a request the admin approves, like any other
+// change that adds hours to the balance.
+async function submitNoLunch(dateRaw, reason) {
+  if (!reason) { showToast('Please say why — the admin needs the context.', 'error'); return; }
+  if (dateRaw > localDateInput()) { showToast('Only for today or a past day.', 'error'); return; }
+  const brDate = inputDateToBr(dateRaw);
+  const btn = document.getElementById('corr-submit');
+  btn.disabled = true;
+  try {
+    await apiPost('createRequest', { user: currentUser, pwdHash: sessionPwdHash, request: {
+      id: genId(), user: currentUser, action: 'nolunch', type: NO_LUNCH,
+      date: brDate, time: '', reason: reason, createdAt: new Date().toISOString()
+    }});
+  } catch(e) {
+    btn.disabled = false;
+    showToast('❌ Could not send — ' + (e.message || 'check your connection.'), 'error');
+    return;
+  }
+  btn.disabled = false;
+  closeModal('correction-modal');
+  await loadRequests(true);
+  renderMyCorrections();
+  showToast('✅ Sent for approval.', 'success');
+}
+
 function shortWindow(w) {
   return w ? w.from.slice(0, 5) + '–' + w.to.slice(0, 5) : '';
 }
 
 function correctionLine(r) {
-  // Two kinds of request share this line. An occurrence asks for hours to be
-  // credited, so it has to show the window and how much that is worth.
+  if (r.action === 'nolunch') {
+    return '<b>🍽 No lunch</b> on ' + r.date + ' → 1h not deducted';
+  }
+  // An occurrence asks for hours to be credited, so it has to show the window
+  // and how much that is worth.
   if (r.action === 'occurrence') {
     const w = parseWindow(r.time);
     return '<b>' + escapeHtml(r.type) + '</b> on ' + r.date
@@ -2650,9 +2697,11 @@ function summariseDays(recs) {
   recs.forEach(function(r) {
     const key = r.user + '|' + r.date;
     if (!byKey[key]) {
-      byKey[key] = { user: r.user, name: r.name, date: r.date, punches: [], occurrences: [] };
+      byKey[key] = { user: r.user, name: r.name, date: r.date, punches: [], occurrences: [], noLunchRecs: [] };
     }
-    (isPunchType(r.type) ? byKey[key].punches : byKey[key].occurrences).push(r);
+    (isPunchType(r.type) ? byKey[key].punches
+      : r.type === NO_LUNCH ? byKey[key].noLunchRecs
+      : byKey[key].occurrences).push(r);
   });
 
   return Object.keys(byKey).map(function(key) {
@@ -2662,9 +2711,11 @@ function summariseDays(recs) {
     const last = t => { const p = punches.filter(r => r.type === t).pop(); return p ? p.time : ''; };
 
     // Net of the automatic lunch. gross/lunch kept for the report to show.
+    day.noLunch = day.noLunchRecs.length > 0;
+    const withNoLunch = punches.concat(day.noLunchRecs);
     day.gross = workedSeconds(punches);
-    day.lunch = lunchOff(punches);
-    day.worked = netWorked(punches);
+    day.lunch = lunchOff(withNoLunch);
+    day.worked = netWorked(withNoLunch);
     day.clockIn = first('Clock In');
     day.lunchOut = first('Lunch Out');
     day.lunchIn = first('Lunch In');
@@ -2913,7 +2964,7 @@ function renderReport() {
   const worked = counted.reduce((s, d) => s + d.worked, 0);
   const justified = counted.reduce((s, d) => s + d.justified, 0);
   const balance = counted.reduce((s, d) => s + d.balance, 0);
-  const occurrences = recs.filter(r => !isPunchType(r.type)).length;
+  const occurrences = recs.filter(r => !isPunchType(r.type) && r.type !== NO_LUNCH).length;
 
   document.getElementById('report-stats').innerHTML =
     '<div class="stat-card"><div class="stat-value" style="color:var(--green)">' + formatDuration(worked) + '</div>'
@@ -2959,6 +3010,7 @@ function renderDailyTable(days) {
     // that was taken off automatically.
     const lunch = (d.lunchOut || d.lunchIn)
       ? formatTime(d.lunchOut) + ' → ' + formatTime(d.lunchIn)
+      : d.noLunch ? '<span style="color:var(--blue)" title="Approved: no lunch taken, the hour is not deducted">🍽 No lunch</span>'
       : (d.lunch ? '−' + formatDuration(d.lunch) : '—');
     return '<tr>'
       + '<td><span style="font-weight:500">' + escapeHtml(d.name) + '</span></td>'
@@ -3038,6 +3090,7 @@ function exportCSV() {
       days.map(function(d) {
         const lunch = (d.lunchOut || d.lunchIn)
           ? [d.lunchOut, d.lunchIn].filter(Boolean).join(' - ')
+          : d.noLunch ? 'No lunch'
           : (d.lunch ? '-' + formatDuration(d.lunch) : '');
         return [d.name, d.date, d.clockIn, lunch, d.clockOut,
                 d.punches.length ? formatDuration(d.worked) : '',
@@ -3138,7 +3191,8 @@ function renderAdmin() {
   tbody.innerHTML = recs.map(function(r) {
     const id = escapeHtml(r.id);
     const w = parseWindow(r.time);
-    const hours = w ? (w.from.slice(0, 5) + '–' + w.to.slice(0, 5)) : 'Full day';
+    const hours = r.type === NO_LUNCH ? '1h not deducted'
+      : w ? (w.from.slice(0, 5) + '–' + w.to.slice(0, 5)) : 'Full day';
     return '<tr><td><span style="font-weight:500">' + escapeHtml(r.name) + '</span></td>'
       + '<td><span class="badge ' + typeClass(r.type) + '">' + typeIcon(r.type) + ' ' + escapeHtml(r.type) + '</span></td>'
       + '<td>' + formatDate(r.date) + '</td><td>' + hours + '</td>'
@@ -3156,8 +3210,11 @@ function renderAdmin() {
 }
 
 function toggleEditTimeTo() {
-  const isPunch = isPunchType(document.getElementById('edit-type').value);
-  document.getElementById('edit-time-to-field').style.display = isPunch ? 'none' : 'block';
+  const type = document.getElementById('edit-type').value;
+  const isPunch = isPunchType(type);
+  document.getElementById('edit-time-to-field').style.display = (isPunch || type === NO_LUNCH) ? 'none' : 'block';
+  const from = document.getElementById('edit-time');
+  if (from && from.parentElement) from.parentElement.style.display = type === NO_LUNCH ? 'none' : '';
 }
 
 // The admin creates a record from scratch — a punch someone forgot, or an
@@ -3219,7 +3276,8 @@ async function saveEdit() {
   // An occurrence keeps its window: both times, or neither.
   const timeTo = document.getElementById('edit-time-to').value;
   let timeValue = normalizeTime(time);
-  if (!isPunchType(type) && (time || timeTo)) {
+  if (type === NO_LUNCH) timeValue = '';   // the whole day's lunch, no time
+  else if (!isPunchType(type) && (time || timeTo)) {
     if (!time || !timeTo) {
       showToast('Fill both times, or clear both for a whole-day occurrence.', 'error');
       return;
@@ -3336,12 +3394,12 @@ function filterByMonthYear(recs, mm, yy) {
 
 function typeClass(type) {
   const map = { 'Clock In':'in', 'Clock Out':'out', 'Lunch Out':'lunchout', 'Lunch In':'lunchin',
-                'Day Off':'dayoff', 'Medical Leave':'medical', 'Holiday':'holiday', 'Vacation':'vacation' };
+                'Day Off':'dayoff', 'Medical Leave':'medical', 'Holiday':'holiday', 'Vacation':'vacation', 'No Lunch':'lunchout' };
   return map[type] || 'out';
 }
 function typeIcon(type) {
   const map = { 'Clock In':'▶', 'Clock Out':'■', 'Lunch Out':'🍽', 'Lunch In':'↩',
-                'Day Off':'☀️', 'Medical Leave':'🏥', 'Holiday':'🎉', 'Vacation':'✈️' };
+                'Day Off':'☀️', 'Medical Leave':'🏥', 'Holiday':'🎉', 'Vacation':'✈️', 'No Lunch':'🍽' };
   return map[type] || '•';
 }
 
